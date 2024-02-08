@@ -6,6 +6,35 @@ import numpy as np
 from cv2 import UMat
 from cv2 import VideoCapture
 
+HAND_TEMPLATES: dict = {}
+
+
+def load_binary_templates():
+    for i in range(0, 6):
+        HAND_TEMPLATES[i] = cv.imread(f"{i}-fingers.png", cv.IMREAD_GRAYSCALE)
+
+
+def get_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
+    arg_min, smallest = None, None
+    # TODO: figure out the threshold
+    # This threshold decides what we will even consider that it might be a potential match
+    # if no template matches the threshold, then we return None since nothing matched
+    threshold = 100
+    for i in range(0, 6):
+        res = cv.matchTemplate(img, HAND_TEMPLATES[i], cv.TM_SQDIFF)
+        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
+
+        print(f'Template {i} match score:', min_val)
+        if min_val > threshold:
+            continue
+
+        # note: since we are using squared diff, we want to minimize the score value
+        # however in many other methods, you want to maximize.
+        if smallest is None or min_val < smallest:
+            smallest = min_val
+            arg_min = i
+
+    return arg_min
 
 def plt_show_img(name: str, img: UMat):
     # plt.imshow(img)
@@ -20,10 +49,12 @@ def rescaleFrame(frame: Union[UMat, np.ndarray], scale) -> UMat:
     width = int(frame.shape[1] * scale)
     return cv.resize(frame, (width, height), interpolation=cv.INTER_AREA)
 
-def calc_area(img: np.ndarray):
+
+def calc_area(img: np.ndarray) -> int:
     return np.count_nonzero(img)
 
-def find_centroid(img: np.ndarray):
+
+def find_centroid(img: np.ndarray) -> Tuple[float, float]:
     area = calc_area(img)
 
     # calculate the first moment
@@ -45,7 +76,8 @@ def find_centroid(img: np.ndarray):
 
     return x, y
 
-def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool):
+
+def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool) -> Tuple[int, Tuple[float, float], float]:
     area = calc_area(img)
     x, y = find_centroid(img)
 
@@ -77,7 +109,7 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
     return area, (x, y), theta
 
 
-def mask_image(img: Union[UMat, np.ndarray]) -> UMat:
+def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
     # convert the video frame into a binary image
     # so that all pixels that look like skin color
     # are included in the binary object
@@ -105,18 +137,19 @@ def mask_image(img: Union[UMat, np.ndarray]) -> UMat:
     return img
 
 
-def apply_smoothing(img: Union[UMat, np.ndarray]):
+def apply_smoothing(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
     img = cv.medianBlur(img, 9)
     return img
 
 
-def convert_to_binary(img: Union[UMat, np.ndarray]):
+def convert_to_binary(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
     img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     _, img = cv.threshold(img, 20, 255, cv.THRESH_BINARY)
     return img
 
 
-def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]) -> Tuple[Union[None, UMat], Union[None, Sequence[int]]]:
+def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]) -> Tuple[
+    Union[None, Union[UMat, np.ndarray]], Union[None, Sequence[int]]]:
     # find largest object in the binary image
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda x: cv.contourArea(x), reverse=True)
@@ -137,7 +170,8 @@ def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]) -> Tuple[Union[
 
     return img, (x1, y1, x2, y2)
 
-def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]):
+
+def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]) -> Union[UMat, np.ndarray]:
     (rows, cols) = img.shape
 
     img_center_x = rows / 2
@@ -149,10 +183,11 @@ def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]):
 
     return img
 
-def scale_obj(img: Union[UMat, np.ndarray], region_of_interest):
+
+def scale_obj(img: Union[UMat, np.ndarray], region_of_interest) -> Union[UMat, np.ndarray]:
     x1, y1, x2, y2 = region_of_interest
 
-    object_roi = img[y1 : y1+y2, x1 : x1+x2]
+    object_roi = img[y1: y1 + y2, x1: x1 + x2]
 
     # Define the scaling factor (e.g., scale by 0.7)
     scale_factor = 0.7
@@ -162,12 +197,12 @@ def scale_obj(img: Union[UMat, np.ndarray], region_of_interest):
 
     # Update the original image with the scaled object
     img = np.zeros(img.shape, dtype=np.uint8)
-    img[y1 : y1+ round((y2*scale_factor)), x1 : x1+round((x2*scale_factor))] = scaled_object_roi
+    img[y1: y1 + round((y2 * scale_factor)), x1: x1 + round((x2 * scale_factor))] = scaled_object_roi
 
     return img
 
 
-def rotate_at_center(img: Union[UMat, np.ndarray], theta) -> UMat:
+def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, np.ndarray]:
     (rows, cols) = img.shape
 
     # rotate at center
@@ -176,10 +211,22 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta) -> UMat:
 
     return img
 
+def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
+    rgb_img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+    cv.putText(rgb_img, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+    plt_show_img("Fingers", rgb_img)
+
 
 def main():
+    # Connect to web cam
+    print("Connecting to webcam...")
     webcam = VideoCapture(0)
 
+    # load templates for template matching
+    print("Loading image templates...")
+    load_binary_templates()
+
+    print("Starting display..!")
     while True:
         status, frame = webcam.read()
         if not status:
@@ -215,7 +262,11 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        plt_show_img("Rotated & Centered", frame)
+        # template match
+        fingers = get_fingers(frame)
+        # display num of fingers
+        show_finger_count(frame, fingers)
+
 
         if cv.waitKey(20) & 0xFF == ord('d'):
             break

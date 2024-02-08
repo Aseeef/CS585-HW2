@@ -1,12 +1,10 @@
+import math
+from typing import Tuple, Union, Sequence
+
 import cv2 as cv
 import numpy as np
-import matplotlib.pyplot as plt
-import math
-from typing import Any, Tuple, Union
-from numpy import ndarray, dtype, generic
-from cv2 import Mat, UMat
+from cv2 import UMat
 from cv2 import VideoCapture
-from cv2.gapi.wip.draw import Image
 
 
 def plt_show_img(name: str, img: UMat):
@@ -108,7 +106,8 @@ def mask_image(img: Union[UMat, np.ndarray]) -> UMat:
 
 
 def apply_smoothing(img: Union[UMat, np.ndarray]):
-    return cv.medianBlur(img, 13)
+    img = cv.medianBlur(img, 9)
+    return img
 
 
 def convert_to_binary(img: Union[UMat, np.ndarray]):
@@ -117,14 +116,14 @@ def convert_to_binary(img: Union[UMat, np.ndarray]):
     return img
 
 
-def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]):
+def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]) -> Tuple[Union[None, UMat], Union[None, Sequence[int]]]:
     # find largest object in the binary image
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda x: cv.contourArea(x), reverse=True)
 
     # if no contours, return the black, empty image
     if len(contours) == 0:
-        return None
+        return None, None
 
     # draw the largest object
     x1, y1, x2, y2 = cv.boundingRect(contours[0])

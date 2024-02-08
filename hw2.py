@@ -124,11 +124,10 @@ def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]):
 
     # if no contours, return the black, empty image
     if len(contours) == 0:
-        return np.zeros_like(img.get())
+        return None
 
     # draw the largest object
-    x, y, w, h = cv.boundingRect(contours[0])
-    img = cv.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 4)
+    x1, y1, x2, y2 = cv.boundingRect(contours[0])
 
     # get rid of everything except the largest object
     mask = np.zeros(img.shape, dtype=np.uint8)
@@ -137,10 +136,9 @@ def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]):
     # fill holes in the contour
     cv.fillPoly(img, pts=[contours[0]], color=(255, 255, 255))
 
-    return img
+    return img, (x1, y1, x2, y2)
 
-
-def rotate_at_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int], theta) -> UMat:
+def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]):
     (rows, cols) = img.shape
 
     img_center_x = rows / 2
@@ -150,11 +148,31 @@ def rotate_at_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int], th
     M = np.float32([[1, 0, img_center_y - centroid[1]], [0, 1, img_center_x - centroid[0]]])
     img = cv.warpAffine(img, M, (cols, rows))
 
-    # scale down the image to prevent cropping
-    img = rescaleFrame(img, 0.6)
+    return img
+
+def scale_obj(img: Union[UMat, np.ndarray], region_of_interest):
+    x1, y1, x2, y2 = region_of_interest
+
+    object_roi = img[y1 : y1+y2, x1 : x1+x2]
+
+    # Define the scaling factor (e.g., scale by 0.7)
+    scale_factor = 0.7
+
+    # Resize the object ROI
+    scaled_object_roi = cv.resize(object_roi, None, fx=scale_factor, fy=scale_factor)
+
+    # Update the original image with the scaled object
+    img = np.zeros(img.shape, dtype=np.uint8)
+    img[y1 : y1+ round((y2*scale_factor)), x1 : x1+round((x2*scale_factor))] = scaled_object_roi
+
+    return img
+
+
+def rotate_at_center(img: Union[UMat, np.ndarray], theta) -> UMat:
+    (rows, cols) = img.shape
 
     # rotate at center
-    M = cv.getRotationMatrix2D((img_center_y, img_center_x), -math.degrees(theta), 1)
+    M = cv.getRotationMatrix2D((cols / 2, rows / 2), -math.degrees(theta), 1)
     img = cv.warpAffine(img, M, (cols, rows))
 
     return img
@@ -171,17 +189,32 @@ def main():
 
         plt_show_img("Original", frame)
 
+        # mask to find skin colored obj
         frame = mask_image(frame)
         plt_show_img("Masked", frame)
 
+        # apply blurring to remove noise
         frame = apply_smoothing(frame)
+        # convert to a binary image
         frame = convert_to_binary(frame)
-        frame = binary_img_extract_largest_obj(frame)
+        # make contours around objects and extract the contour
+        # with the largest area (the biggest obj) while also
+        # filling in the extracted shape (further removing noise)
+        frame, region_of_interest = binary_img_extract_largest_obj(frame)
 
-        plt_show_img("Smoothed", frame)
+        # if no obj is detected, continue
+        if frame is None:
+            continue
 
+        # now scale the object in preperation for when we rotate it
+        # (because we don't want it to get cropped)
+        frame = scale_obj(frame, region_of_interest)
+        # find the axis of least inertia
         area, centroid, theta = find_axis_of_least_inertia(frame, True)
-        frame = rotate_at_center(frame, centroid, theta)
+        # translate the centroid of the obj to the center of the image
+        frame = move_obj_to_center(frame, centroid)
+        # rotate the image based of the axis of least inertia
+        frame = rotate_at_center(frame, theta)
 
         plt_show_img("Rotated & Centered", frame)
 

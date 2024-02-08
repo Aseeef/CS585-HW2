@@ -14,6 +14,42 @@ def load_binary_templates():
         HAND_TEMPLATES[i] = cv.imread(f"{i}-fingers.png", cv.IMREAD_GRAYSCALE)
 
 
+def get_munirian_fingers(img: Union[UMat, np.ndarray]) -> int:
+    # Find contours
+    contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return 0
+
+    # Get the largest contour
+    contour = max(contours, key=cv.contourArea)
+
+    # Find the convex hull and the convexity defects
+    hull = cv.convexHull(contour, returnPoints=False)
+    defects = cv.convexityDefects(contour, hull)
+
+    if defects is None:
+        return 0
+
+    # Count the defects (number of fingers)
+    count = 0
+    for i in range(defects.shape[0]):
+        s, e, f, d = defects[i, 0]
+        start = tuple(contour[s][0])
+        end = tuple(contour[e][0])
+        far = tuple(contour[f][0])
+
+        # Use triangle similarity to estimate whether the defect is between fingers
+        a = np.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
+        b = np.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
+        c = np.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+        angle = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
+
+        # If the angle is less than 100 degrees, it's likely a finger
+        if angle < np.deg2rad(100) / 2:
+            count += 1
+
+    return count
+
 def get_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
     arg_min, smallest = None, None
     # TODO: figure out the threshold

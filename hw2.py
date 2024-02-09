@@ -536,6 +536,8 @@ def main():
         plt_show_img("Pre-edge smoothing", frame)
         frame, contour = angle_contour_reducer(frame, contour)
         frame, contour = defects_remover_via_angle_checking(frame, contour)
+        frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
+        frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
         plt_show_img("Post-edge smoothing", frame)
 
         # now scale the object in preperation for when we rotate it

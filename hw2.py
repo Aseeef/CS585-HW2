@@ -1,4 +1,6 @@
 import math
+import random
+import statistics
 from typing import Tuple, Union, Sequence
 
 import cv2 as cv
@@ -12,6 +14,8 @@ HAND_TEMPLATES: dict = {}
 def load_binary_templates():
     for i in range(0, 6):
         HAND_TEMPLATES[i] = cv.imread(f"{i}-fingers.png", cv.IMREAD_GRAYSCALE)
+        if HAND_TEMPLATES[i] is None:
+            print(f"ERROR loading {i}-fingers.png.")
 
 
 def get_munirian_fingers(img: Union[UMat, np.ndarray]) -> int:
@@ -50,7 +54,8 @@ def get_munirian_fingers(img: Union[UMat, np.ndarray]) -> int:
 
     return count
 
-def get_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
+
+def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
     arg_min, smallest = None, None
     # TODO: figure out the threshold
     # This threshold decides what we will even consider that it might be a potential match
@@ -71,6 +76,165 @@ def get_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
             arg_min = i
 
     return arg_min
+
+
+def get_palm(img: Union[UMat, np.ndarray], region_of_interest):
+    # test different sizes to find best match
+    best_sf = None
+    best_val = None
+    best_loc = None
+    best_size = None
+    for i in range(300, 100, -10):
+        scale_factor = i / 100
+        scaled_template = cv.resize(HAND_TEMPLATES[0].copy(), None, fx=scale_factor, fy=scale_factor)
+        res = cv.matchTemplate(img, scaled_template, cv.TM_SQDIFF)
+        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
+        if best_val is None or min_val < best_val:
+            best_val = min_val
+            best_loc = min_loc
+            best_size = scaled_template.shape
+            best_sf = scale_factor
+
+    # draw the best match
+    x, y = best_loc
+    h, w = best_size
+    print(best_val, best_sf)
+    cv.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    cv.imshow("Palm", img)
+
+
+def count_fingers_around_circle(img: Union[UMat, np.ndarray], center: Tuple[int, int], radius: int):
+    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+    # pi = 3.1415926535
+    for theta in range(0, int(math.pi * 100 * 2), 1):
+        theta = theta / 100
+        x = radius * math.cos(theta) + center[0]
+        y = radius * math.sin(theta) + center[1]
+
+        img = cv.circle(img, (int(x), int(y)), 3, (0, 255, 0), 1)
+
+    cv.imshow("TEST", img)
+    ...
+
+
+def calc_angle_between_points(a, b, c) -> float:
+    len_ab = calc_dist_between_points(a, b)
+    len_bc = calc_dist_between_points(b, c)
+    len_ac = calc_dist_between_points(a, c)
+
+    assert len_ab > 0
+    assert len_bc > 0
+    assert len_ac > 0
+
+    cos_theta = (len_ab ** 2 + len_bc ** 2 - len_ac ** 2) / (2 * len_ab * len_bc)
+    cos_theta = max(-1.0, min(1.0, cos_theta))
+    theta = math.degrees(math.acos(cos_theta))
+    return theta
+
+LEN_THRESHOLD_PIXELS: int = 16
+
+def calc_dist_between_points(a, b):
+    return math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
+
+def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
+        Tuple[Union[UMat, np.ndarray], Union[UMat, np.ndarray]]:
+    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+
+    if len(contour) < 3:
+        return img
+
+    new_contours = [contour[0], contour[1]]
+
+    for i in range(len(contour)):
+        if i < 2:
+            continue
+
+        # using law of cosine calculate theta
+
+        a: np.ndarray = contour[i - 2][0]
+        b: np.ndarray = contour[i - 1][0]
+        c: np.ndarray = contour[i][0]
+
+        # if a b or c equal, continue
+        if np.array_equal(a, b) or np.array_equal(b, c) or np.array_equal(a, c):
+            continue
+
+        theta = calc_angle_between_points(a, b, c)
+
+        # if the change in angle is almost 180, merge the contour into 1
+        if math.fabs(theta - 180.0) < 30:
+            new_contours.pop()
+            contour[i - 1][0] = a
+            new_contours += [[c]]
+        else:
+            new_contours += [[c]]
+
+        # if the change in angle is greater than 30 degrees, put a marker
+        # if math.fabs(theta - 180.0) > 80:
+        #     img = cv.drawMarker(img, (b[0], b[1]), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
+
+    new_contours = np.array(new_contours)
+    img = extract_obj_in_contour(img, new_contours)
+
+    img = cv.cvtColor(img, cv.COLOR_RGB2GRAY)
+    return img, new_contours
+
+
+def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UMat):
+    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+
+    if len(contour) < 3:
+        return img
+
+    # if angle changes too rapidly over a short distance,
+    # try to see if we can find a close alternative to smooth out the edge
+
+    new_contours = [contour[0], contour[1]]
+    total_recent_theta_change = []
+    recent_distance_traveled = []
+
+    for i in range(len(contour)):
+        if i < 2:
+            continue
+
+        # using law of cosine calculate theta
+        a = contour[i - 2][0]
+        b = contour[i - 1][0]
+        c = contour[i][0]
+
+        # if a b or c equal, continue
+        if np.array_equal(a, b) or np.array_equal(b, c) or np.array_equal(a, c):
+            continue
+
+        theta = calc_angle_between_points(a, b, c)
+
+        total_recent_theta_change += [math.fabs(theta - 180.0)]
+        recent_distance_traveled += [calc_dist_between_points(b, c)]
+        while sum(recent_distance_traveled) > 13:
+            total_recent_theta_change.pop(0)
+            recent_distance_traveled.pop(0)
+
+        # if the change in angle is greater than 60 degrees suddenly, draw marker, and remove
+        if math.fabs(theta - 180.0) > 60:
+            if len(new_contours) == 0:
+                continue
+            new_contours.pop()
+            contour[i - 1][0] = a
+            new_contours += [[c]]
+        elif sum(total_recent_theta_change) > 500:
+            if len(new_contours) == 0:
+                continue
+            new_contours.pop()
+            contour[i - 1][0] = a
+        else:
+            new_contours += [[c]]
+
+    new_contours = np.array(new_contours)
+    img = extract_obj_in_contour(img, new_contours)
+
+    img = cv.cvtColor(img, cv.COLOR_RGB2GRAY)
+    return img, new_contours
+
 
 def plt_show_img(name: str, img: UMat):
     # plt.imshow(img)
@@ -113,7 +277,8 @@ def find_centroid(img: np.ndarray) -> Tuple[float, float]:
     return x, y
 
 
-def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool) -> Tuple[int, Tuple[float, float], float]:
+def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool) -> Tuple[
+    int, Tuple[int, int], float]:
     area = calc_area(img)
     x, y = find_centroid(img)
 
@@ -142,7 +307,7 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
         cv.putText(img, f'{theta}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
         plt_show_img("Angle of Least Inertia", img)
 
-    return area, (x, y), theta
+    return area, (int(x), int(y)), theta
 
 
 def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
@@ -174,7 +339,8 @@ def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
 
 
 def apply_smoothing(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    img = cv.medianBlur(img, 9)
+    img = cv.GaussianBlur(img, (7, 7), 0)
+    img = cv.medianBlur(img, 11)
     return img
 
 
@@ -184,30 +350,37 @@ def convert_to_binary(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
     return img
 
 
+def extract_obj_in_contour(img: Union[UMat, np.ndarray], contour: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
+    # get rid of everything except the largest object
+    mask = np.zeros(img.shape, dtype=np.uint8)
+    # fill holes in the contour
+    img = cv.fillPoly(mask, pts=[contour], color=(255, 255, 255))
+
+    return img
+
+
 def binary_img_extract_largest_obj(img: Union[UMat, np.ndarray]) -> Tuple[
-    Union[None, Union[UMat, np.ndarray]], Union[None, Sequence[int]]]:
+    Union[None, Union[UMat, np.ndarray]], Union[None, UMat], Union[None, Sequence[int]]
+]:
     # find largest object in the binary image
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda x: cv.contourArea(x), reverse=True)
 
     # if no contours, return the black, empty image
     if len(contours) == 0:
-        return None, None
+        return None, None, None
 
     # draw the largest object
     x1, y1, x2, y2 = cv.boundingRect(contours[0])
 
     # get rid of everything except the largest object
-    mask = np.zeros(img.shape, dtype=np.uint8)
-    cv.drawContours(mask, contours, 0, (255, 255, 255), -1)
-    img = cv.bitwise_and(img, mask)
-    # fill holes in the contour
-    cv.fillPoly(img, pts=[contours[0]], color=(255, 255, 255))
+    img = extract_obj_in_contour(img, contours[0])
 
-    return img, (x1, y1, x2, y2)
+    return img, contours[0], (x1, y1, x2, y2)
 
 
-def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]) -> Union[UMat, np.ndarray]:
+def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int], region_of_interest: Sequence[int]) -> \
+        Tuple[Union[UMat, np.ndarray], Sequence[int]]:
     (rows, cols) = img.shape
 
     img_center_x = rows / 2
@@ -217,10 +390,17 @@ def move_obj_to_center(img: Union[UMat, np.ndarray], centroid: Tuple[int, int]) 
     M = np.float32([[1, 0, img_center_y - centroid[1]], [0, 1, img_center_x - centroid[0]]])
     img = cv.warpAffine(img, M, (cols, rows))
 
-    return img
+    x1, x2, y1, y2 = region_of_interest
+    x1 += img_center_y - centroid[1]
+    x2 += img_center_y - centroid[1]
+    y1 += img_center_x - centroid[0]
+    y2 += img_center_x - centroid[0]
+
+    return img, (x1, x2, y1, y2)
 
 
-def scale_obj(img: Union[UMat, np.ndarray], region_of_interest) -> Union[UMat, np.ndarray]:
+def scale_obj(img: Union[UMat, np.ndarray], region_of_interest: Sequence[int]) -> \
+        Tuple[Union[UMat, np.ndarray], Sequence[int]]:
     x1, y1, x2, y2 = region_of_interest
 
     object_roi = img[y1: y1 + y2, x1: x1 + x2]
@@ -233,9 +413,15 @@ def scale_obj(img: Union[UMat, np.ndarray], region_of_interest) -> Union[UMat, n
 
     # Update the original image with the scaled object
     img = np.zeros(img.shape, dtype=np.uint8)
-    img[y1: y1 + round((y2 * scale_factor)), x1: x1 + round((x2 * scale_factor))] = scaled_object_roi
 
-    return img
+    y2 = y1 + round((y2 * scale_factor))
+    x2 = x1 + round((x2 * scale_factor))
+
+    img[y1:y2, x1:x2] = scaled_object_roi
+
+    new_region_of_interest = y1, y2, x1, x2
+
+    return img, new_region_of_interest
 
 
 def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, np.ndarray]:
@@ -246,6 +432,7 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, 
     img = cv.warpAffine(img, M, (cols, rows))
 
     return img
+
 
 def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
     rgb_img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
@@ -269,40 +456,57 @@ def main():
             print('Failed to capture frame')
             return
 
+        original = frame.copy()
+
         plt_show_img("Original", frame)
+
+        # apply blurring to remove noise
+        frame = apply_smoothing(frame)
 
         # mask to find skin colored obj
         frame = mask_image(frame)
         plt_show_img("Masked", frame)
 
-        # apply blurring to remove noise
-        frame = apply_smoothing(frame)
         # convert to a binary image
         frame = convert_to_binary(frame)
         # make contours around objects and extract the contour
         # with the largest area (the biggest obj) while also
         # filling in the extracted shape (further removing noise)
-        frame, region_of_interest = binary_img_extract_largest_obj(frame)
+        frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
         # if no obj is detected, continue
         if frame is None:
             continue
 
+        plt_show_img("Pre-edge smoothing", frame)
+        frame, contour = angle_contour_reducer(frame, contour)
+        frame, contour = defects_remover_via_angle_checking(frame, contour)
+        plt_show_img("Post-edge smoothing", frame)
+
         # now scale the object in preperation for when we rotate it
         # (because we don't want it to get cropped)
-        frame = scale_obj(frame, region_of_interest)
+        frame, region_of_interest = scale_obj(frame, region_of_interest)
         # find the axis of least inertia
         area, centroid, theta = find_axis_of_least_inertia(frame, True)
         # translate the centroid of the obj to the center of the image
-        frame = move_obj_to_center(frame, centroid)
+        frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        # template match
-        fingers = get_fingers(frame)
-        # display num of fingers
-        show_finger_count(frame, fingers)
+        if area < 22000:
+            print(area)
+            # add cv text to move closer
+            cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
+
+        plt_show_img("Final", original)
+
+        #print(get_munirian_fingers(frame))
+
+        # template match
+        # fingers = get_aseefian_fingers(frame)
+        # display num of fingers
+        # show_finger_count(frame, fingers)
 
         if cv.waitKey(20) & 0xFF == ord('d'):
             break

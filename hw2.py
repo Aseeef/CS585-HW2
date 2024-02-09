@@ -55,6 +55,61 @@ def get_munirian_fingers(img: Union[UMat, np.ndarray]) -> int:
     return count
 
 
+def bounding_box_from_contour(contour):
+    x_axis = contour[:, 0, 0]
+    y_axis = contour[:, 0, 1]
+
+    x1, x2 = min(x_axis), max(x_axis)
+    y1, y2 = min(y_axis), max(y_axis)
+
+    return x1, x2, y1, y2
+
+def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
+
+    # Find contours
+    contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return 0
+    # Get the largest contour
+    contour = max(contours, key=cv.contourArea)
+
+    center_x, center_y = find_centroid(img)
+
+    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+    # draw centroid todo: x,y flipped fix later
+    img = cv.drawMarker(img, (int(center_y), int(center_x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
+
+    # Find the convex hull
+    hull = cv.convexHull(contour, returnPoints=True)
+    # Draw the hull
+    cv.drawContours(img, [hull], -1, (0, 255, 0), 3)
+
+    # delete the bottom 40% of the image obj
+    x1, y1, w, h = cv.boundingRect(contour)
+    x2 = x1 + w
+    y2 = y1 + h
+    cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw the bounding box
+    new_y2 = y2 + int(((y1 - y2) * (1/4)))
+    img[new_y2:y2, x1:x2] = 0
+
+    dist_to_edges = []
+    for p in hull:
+        img = cv.drawMarker(img, (int(p[0][0]), int(p[0][1])), color=(255, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
+        dist_to_edges.append(calc_dist_between_points(p[0], (center_x, center_y)))
+
+    circle_radius = statistics.mean(dist_to_edges)
+
+    for theta in range(0, int(math.pi * 100 * 2), 1):
+        theta = theta / 100
+        x = circle_radius * math.cos(theta) + center_x
+        y = circle_radius * math.sin(theta) + center_y
+
+        img = cv.circle(img, (int(y), int(x)), 3, (0, 255, 0), 1)
+        # TODO: detect flipping between 0 and 1
+
+    # show
+    cv.imshow("Hull", img)
+
 def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
     arg_min, smallest = None, None
     # TODO: figure out the threshold
@@ -141,7 +196,7 @@ def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
     img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
     if len(contour) < 3:
-        return img
+        return img, contour
 
     new_contours = [contour[0], contour[1]]
 
@@ -184,7 +239,7 @@ def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UM
     img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
     if len(contour) < 3:
-        return img
+        return img, contour
 
     # if angle changes too rapidly over a short distance,
     # try to see if we can find a close alternative to smooth out the edge
@@ -494,10 +549,10 @@ def main():
         frame = rotate_at_center(frame, theta)
 
         if area < 22000:
-            print(area)
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
+        hull_finger_counter(frame)
 
         plt_show_img("Final", original)
 

@@ -79,36 +79,65 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     # draw centroid todo: x,y flipped fix later
     img = cv.drawMarker(img, (int(center_y), int(center_x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
 
+    # delete the bottom 20% of the image obj
+    x1, y1, w, h = cv.boundingRect(contour)
+    x2 = x1 + w
+    y2 = y1 + h
+    cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw the bounding box
+    new_y2 = y2 + int(((y1 - y2) * (1/5)))
+    img[new_y2:y2, x1:x2] = 0
+
     # Find the convex hull
     hull = cv.convexHull(contour, returnPoints=True)
     # Draw the hull
     cv.drawContours(img, [hull], -1, (0, 255, 0), 3)
 
-    # delete the bottom 40% of the image obj
-    x1, y1, w, h = cv.boundingRect(contour)
-    x2 = x1 + w
-    y2 = y1 + h
-    cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw the bounding box
-    new_y2 = y2 + int(((y1 - y2) * (1/4)))
-    img[new_y2:y2, x1:x2] = 0
-
     dist_to_edges = []
     for p in hull:
         img = cv.drawMarker(img, (int(p[0][0]), int(p[0][1])), color=(255, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
-        dist_to_edges.append(calc_dist_between_points(p[0], (center_x, center_y)))
+        edge_point = p[0]
+        dist = calc_dist_between_points(edge_point, (center_x, center_y))
+        dist_to_edges += [(dist, edge_point)]
 
-    circle_radius = statistics.mean(dist_to_edges)
+    r = (h // 2) - (h // 9)
 
+    bin_img = img.copy()
+    bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
+
+    fingers_counter = 0
+    current_status = None
+    last_status = None
     for theta in range(0, int(math.pi * 100 * 2), 1):
         theta = theta / 100
-        x = circle_radius * math.cos(theta) + center_x
-        y = circle_radius * math.sin(theta) + center_y
+        x = int((r * math.cos(theta)) + center_x)
+        y = int((r * math.sin(theta)) + center_y)
 
-        img = cv.circle(img, (int(y), int(x)), 3, (0, 255, 0), 1)
-        # TODO: detect flipping between 0 and 1
+        #print(f"Pixel at y={y}, x={x} is {bin_img[x, y]}")
+        #print(f"Middle: {center_y}, {center_x} is {bin_img[int(center_x), int(center_y)]}")
+        #print(f"Full img: {bin_img.shape}")
+        current_status = 1 if bin_img[x, y] == 255 else 0
 
+        if current_status == 1:
+            img = cv.drawMarker(img, (y, x), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=3)
+        else:
+            img = cv.drawMarker(img, (y, x), color=(0, 100, 0), markerType=cv.MARKER_CROSS, markerSize=3)
+
+        if last_status is not None and last_status == 0 and current_status == 1:
+            fingers_counter += 1
+            img = cv.drawMarker(img, (y, x), color=(0, 255, 255), markerType=cv.MARKER_CROSS, markerSize=10)
+            #print("LS1", last_status, "CS1", current_status)
+        elif last_status is not None and last_status == 1 and current_status == 0:
+            fingers_counter += 1
+            img = cv.drawMarker(img, (y, x), color=(255, 0, 255), markerType=cv.MARKER_CROSS, markerSize=10)
+            #print("LS2", last_status, "CS2", current_status)
+
+        last_status = current_status
+
+    print(fingers_counter)
     # show
     cv.imshow("Hull", img)
+
+    return fingers_counter // 2
 
 def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
     arg_min, smallest = None, None
@@ -193,7 +222,6 @@ def calc_dist_between_points(a, b):
 
 def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
         Tuple[Union[UMat, np.ndarray], Union[UMat, np.ndarray]]:
-    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
     if len(contour) < 3:
         return img, contour
@@ -231,12 +259,10 @@ def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
     new_contours = np.array(new_contours)
     img = extract_obj_in_contour(img, new_contours)
 
-    img = cv.cvtColor(img, cv.COLOR_RGB2GRAY)
     return img, new_contours
 
 
 def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UMat):
-    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
     if len(contour) < 3:
         return img, contour
@@ -287,7 +313,6 @@ def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UM
     new_contours = np.array(new_contours)
     img = extract_obj_in_contour(img, new_contours)
 
-    img = cv.cvtColor(img, cv.COLOR_RGB2GRAY)
     return img, new_contours
 
 
@@ -498,7 +523,7 @@ def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
 def main():
     # Connect to web cam
     print("Connecting to webcam...")
-    webcam = VideoCapture(0)
+    webcam = VideoCapture(0, cv.CAP_DSHOW)
 
     # load templates for template matching
     print("Loading image templates...")
@@ -509,18 +534,18 @@ def main():
         status, frame = webcam.read()
         if not status:
             print('Failed to capture frame')
-            return
+            continue
 
         original = frame.copy()
 
-        plt_show_img("Original", frame)
+        #plt_show_img("Original", frame)
 
         # apply blurring to remove noise
         frame = apply_smoothing(frame)
 
         # mask to find skin colored obj
         frame = mask_image(frame)
-        plt_show_img("Masked", frame)
+        #plt_show_img("Masked", frame)
 
         # convert to a binary image
         frame = convert_to_binary(frame)
@@ -533,28 +558,28 @@ def main():
         if frame is None:
             continue
 
-        plt_show_img("Pre-edge smoothing", frame)
         frame, contour = angle_contour_reducer(frame, contour)
         frame, contour = defects_remover_via_angle_checking(frame, contour)
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
-        plt_show_img("Post-edge smoothing", frame)
 
         # now scale the object in preperation for when we rotate it
         # (because we don't want it to get cropped)
         frame, region_of_interest = scale_obj(frame, region_of_interest)
         # find the axis of least inertia
-        area, centroid, theta = find_axis_of_least_inertia(frame, True)
+        area, centroid, theta = find_axis_of_least_inertia(frame, False)
         # translate the centroid of the obj to the center of the image
         frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 22000:
+        if area < 20000:
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+            continue
 
-        hull_finger_counter(frame)
+        fingers = hull_finger_counter(frame)
+        cv.putText(original, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
         plt_show_img("Final", original)
 

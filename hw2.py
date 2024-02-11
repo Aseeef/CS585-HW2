@@ -1,40 +1,12 @@
 import math
-import random
 import statistics
+import random
 from typing import Tuple, Union, Sequence
 
 import cv2 as cv
 import numpy as np
 from cv2 import UMat
 from cv2 import VideoCapture
-
-HAND_TEMPLATES: dict = {}
-
-
-def load_binary_templates():
-    for i in range(0, 6):
-        HAND_TEMPLATES[i] = cv.imread(f"{i}-fingers.png", cv.IMREAD_GRAYSCALE)
-        if HAND_TEMPLATES[i] is None:
-            print(f"ERROR loading {i}-fingers.png.")
-
-
-def get_munirian_fingers(contour):
-    hull = cv.convexHull(contour, returnPoints=False)
-    if len(hull) > 3:
-        defects = cv.convexityDefects(contour, hull)
-        if defects is not None:
-            count = 0
-            for i in range(defects.shape[0]):
-                s, e, f, d = defects[i, 0]
-                start = tuple(contour[s][0])
-                end = tuple(contour[e][0])
-                far = tuple(contour[f][0])
-                # Check if angle between fingers is within a certain range
-                angle = calculate_angle(start, far, end)
-                if d > 10000 and angle < 90:
-                    count += 1
-            return count
-    return 0
 
 
 def calculate_angle(start, far, end):
@@ -127,68 +99,6 @@ def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> i
     return math.ceil(fingers_counter / 2)
 
 
-def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
-    arg_min, smallest = None, None
-    # TODO: figure out the threshold
-    # This threshold decides what we will even consider that it might be a potential match
-    # if no template matches the threshold, then we return None since nothing matched
-    threshold = 100
-    for i in range(0, 6):
-        res = cv.matchTemplate(img, HAND_TEMPLATES[i], cv.TM_SQDIFF)
-        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
-
-        print(f'Template {i} match score:', min_val)
-        if min_val > threshold:
-            continue
-
-        # note: since we are using squared diff, we want to minimize the score value
-        # however in many other methods, you want to maximize.
-        if smallest is None or min_val < smallest:
-            smallest = min_val
-            arg_min = i
-
-    return arg_min
-
-
-def get_palm(img: Union[UMat, np.ndarray], region_of_interest):
-    # test different sizes to find best match
-    best_sf = None
-    best_val = None
-    best_loc = None
-    best_size = None
-    for i in range(300, 100, -10):
-        scale_factor = i / 100
-        scaled_template = cv.resize(HAND_TEMPLATES[0].copy(), None, fx=scale_factor, fy=scale_factor)
-        res = cv.matchTemplate(img, scaled_template, cv.TM_SQDIFF)
-        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
-        if best_val is None or min_val < best_val:
-            best_val = min_val
-            best_loc = min_loc
-            best_size = scaled_template.shape
-            best_sf = scale_factor
-
-    # draw the best match
-    x, y = best_loc
-    h, w = best_size
-    print(best_val, best_sf)
-    cv.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    plt_show_img("Palm", img)
-
-
-def count_fingers_around_circle(img: Union[UMat, np.ndarray], center: Tuple[int, int], radius: int):
-    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    # pi = 3.1415926535
-    for theta in range(0, int(math.pi * 100 * 2), 1):
-        theta = theta / 100
-        x = radius * math.cos(theta) + center[0]
-        y = radius * math.sin(theta) + center[1]
-
-        img = cv.circle(img, (int(x), int(y)), 3, (0, 255, 0), 1)
-
-    plt_show_img("TEST", img)
-    ...
-
-
 def calc_angle_between_points(a, b, c) -> float:
     len_ab = calc_dist_between_points(a, b)
     len_bc = calc_dist_between_points(b, c)
@@ -202,9 +112,6 @@ def calc_angle_between_points(a, b, c) -> float:
     cos_theta = max(-1.0, min(1.0, cos_theta))
     theta = math.degrees(math.acos(cos_theta))
     return theta
-
-
-LEN_THRESHOLD_PIXELS: int = 16
 
 
 def calc_dist_between_points(a, b):
@@ -306,8 +213,6 @@ def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UM
 
 
 def plt_show_img(name: str, img: UMat):
-    # plt.imshow(img)
-    # plt.plot()
     cv.namedWindow(name, cv.WINDOW_AUTOSIZE)
     cv.imshow(name, img)
     cv.waitKey(1)
@@ -335,17 +240,6 @@ def calc_area(img: np.ndarray) -> int:
 
 def find_centroid(img: np.ndarray) -> Tuple[float, float]:
     area = calc_area(img)
-
-    # calculate the first moment
-    # m10 = 0
-    # m01 = 0
-    # for i in range(img.shape[0]):
-    #     for j in range(img.shape[1]):
-    #         if img[i, j] > 0:
-    #             m10 += i
-    #             m01 += j
-
-    # above code works, but numpy is faster!
     m10 = np.sum(np.where(img > 0)[0])
     m01 = np.sum(np.where(img > 0)[1])
 
@@ -535,95 +429,45 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, 
     return img
 
 
-def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
-    rgb_img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    cv.putText(rgb_img, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
-    plt_show_img("Fingers", rgb_img)
+count = fingers_detected = 0
 
 
-def identify_finger_tips(contours):
-    finger_tips = []
-    for contour in contours:
-        # Find convex hull
-        hull = cv.convexHull(contour, returnPoints=False)
+def count_fingers():
+    global count, fingers_detected
 
-        # Find convexity defects
-        defects = cv.convexityDefects(contour, hull)
-
-        if defects is not None:
-            for i in range(defects.shape[0]):
-                s, e, f, _ = defects[i, 0]
-                start = tuple(contour[s][0])
-                end = tuple(contour[e][0])
-                far = tuple(contour[f][0])
-
-                # Check if the far point is above the midpoint between start and end
-                # This helps in filtering out inner hand contours
-                dist_start_end = np.linalg.norm(np.array(end) - np.array(start))
-                dist_start_far = np.linalg.norm(np.array(far) - np.array(start))
-                dist_end_far = np.linalg.norm(np.array(far) - np.array(end))
-                angle = math.degrees(math.acos((dist_start_far ** 2 + dist_end_far ** 2 - dist_start_end ** 2) / (
-                            2 * dist_start_far * dist_end_far)))
-                if angle < 90:
-                    finger_tips.append(far)
-    return finger_tips
-
-
-previous_count = 0
-
-
-def update_finger_count(contour):
-    global previous_count
-
-    # Count fingers
-    finger_count = get_munirian_fingers(contour)
-
-    # Apply threshold to avoid small fluctuations
-    threshold = 2
-    if abs(finger_count - previous_count) >= threshold:
-        previous_count = finger_count
-        return finger_count
-    else:
-        return previous_count
-
-
-def main():
-    # Connect to web cam
-    print("Connecting to webcam...")
-    webcam = VideoCapture(0, cv.CAP_DSHOW)
+    # Connect to webcam
+    # print("Connecting to webcam...")
+    webcam = cv.VideoCapture(0, cv.CAP_DSHOW)
     setResLiveVideo(webcam, 500)
 
-    print("Starting display..!")
+    # print("Starting display..!")
     finger_detections = []
-    last_detection = None
     while True:
         status, frame = webcam.read()
         if not status:
             print('Failed to capture frame')
-            return
+            return None
 
         rescaleFrame(frame, 0.6)
 
         original = frame.copy()
 
-        # apply blurring to remove noise
+        # Apply blurring to remove noise
         frame = apply_smoothing(frame)
 
-        # mask to find skin colored obj
+        # Mask to find skin-colored objects
         frame = mask_image(frame)
-        plt_show_img("Masked", frame)
 
-        # convert to a binary image
+        # Convert to a binary image
         frame = convert_to_binary(frame)
 
-        # dilate before extracting the largest obj
+        # Dilate before extracting the largest object
         frame = cv.dilate(frame, np.array([9, 9]), iterations=4)
-        # make contours around objects and extract the contour
-        # with the largest area (the biggest obj) while also
-        # filling in the extracted shape (further removing noise)
+
+        # Make contours around objects and extract the contour with the largest area
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
-        # if no obj is detected, continue
+        # If no object is detected, continue
         if frame is None:
             continue
 
@@ -632,48 +476,171 @@ def main():
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
-        plt_show_img("Extracted Hand", frame)
-
-        # now scale the object in preperation for when we rotate it
-        # (because we don't want it to get cropped)
+        # Now scale the object in preparation for when we rotate it
         frame, region_of_interest = scale_obj(frame, region_of_interest)
-        # find the axis of least inertia
+
+        # Find the axis of least inertia
         area, centroid, theta = find_axis_of_least_inertia(frame, False)
-        # translate the centroid of the obj to the center of the image
+
+        # Translate the centroid of the object to the center of the image
         frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
-        # rotate the image based of the axis of least inertia
+
+        # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
         if area < 1500:
-            # add cv text to move closer
+            # Add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)
             continue
 
-        fingers = hull_finger_counter(frame, True)
+        fingers = hull_finger_counter(frame, False)
         roundness = calc_roundness(frame)
-        # 5 fingers is a bit inaccurate so to help that we use this because when 5 fingers are up
-        # the hand is kinda rounded
         fingers = 5 if (roundness > 0.5 and (fingers >= 4)) else fingers
         fingers = min(fingers, 5)
-        print(roundness)
 
-        detection_result = None
         if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:
-            detection_result = int(statistics.mean(finger_detections))
-            cv.putText(original, f'Fingers: {detection_result}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
-                       cv.LINE_AA)
-            last_detection = detection_result
-        elif len(finger_detections) > 10:
-            cv.putText(original, f'Calculating...', (10, 30),
+            cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30),
                        cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+        elif len(finger_detections) > 10:
+            cv.putText(original, f'Calculating...', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
-        plt_show_img("Final", original)
+        # Display the final frame with finger count information
+        plt_show_img("Enter your guess", original)
 
-        # remove oldest detections
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
+            finger_count = int(statistics.mean(finger_detections))
+
+            if count == 0 and 1 <= finger_count <= 5:
+                fingers_detected = finger_count
+                count += 1
+            else:
+                if fingers_detected == finger_count:
+                    count += 1
+                else:
+                    count = 0
+
+            # print(count)
+
+            if count == 30:
+                webcam.release()
+                cv.destroyWindow("Enter your guess")
+                count = fingers_detected = 0
+                return finger_count
+
+        # Remove oldest detections
         finger_detections += [fingers]
         if len(finger_detections) > 20:
             finger_detections.pop(0)
+
+
+def main():
+    while True:
+        image = cv.imread("background.jpg")
+        image = cv.resize(image, (1000, 2 * image.shape[0]))
+        blank = image.copy()
+        welcome_message = "Welcome to the Memory Game!"
+        font = cv.FONT_HERSHEY_DUPLEX
+        color = (255, 255, 255)
+        textsize = cv.getTextSize(welcome_message, font, 1.5, 1)[0]
+        textX = (image.shape[1] - textsize[0]) // 2
+        textY = 70
+
+        cv.putText(image, welcome_message, (textX, textY), font, 1.5, color, 1, cv.LINE_AA)
+        cv.imshow("The Memory Game", image)
+        background = image.copy()
+
+        for i in range(7, 0, -1):
+            begin_image = np.copy(image)
+            begin_message = "The game begins in " + str(i)
+            textsize = cv.getTextSize(begin_message, font, 1, 1)[0]
+            textX = (image.shape[1] - textsize[0]) // 2
+            textY = 350
+            cv.putText(begin_image, begin_message, (textX, textY), font, 1, (0, 255, 0), 1, cv.LINE_AA)
+            cv.imshow("The Memory Game", begin_image)
+            cv.waitKey(1000)  # Wait for 1 second
+
+        cv.imshow("The Memory Game", background)
+
+        NUMBER_LENGTH = 6
+
+        number_to_guess = ""
+        for _ in range(NUMBER_LENGTH):
+            number_to_guess += random.choice("12345")
+
+        guess_message = "Here is the number to remember: " + number_to_guess
+        textsize = cv.getTextSize(guess_message, font, 1, 1)[0]
+        textX = (image.shape[1] - textsize[0]) // 2
+        textY = 350
+
+        cv.putText(image, guess_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
+        cv.imshow("The Memory Game", image)
+
+        for i in range(5, 0, -1):
+            countdown_image = np.copy(image)
+            countdown_message = "Disappearing in " + str(i)
+            textsize = cv.getTextSize(countdown_message, font, 1, 1)[0]
+            textX = (image.shape[1] - textsize[0]) // 2
+            textY = 390
+            cv.putText(countdown_image, countdown_message, (textX, textY), font, 1, (0, 0, 255), 1, cv.LINE_AA)
+            cv.imshow("The Memory Game", countdown_image)
+            cv.waitKey(1000)  # Wait for 1 second
+
+        cv.imshow("The Memory Game", background)
+
+        nums_chosen = []
+        number_guessed = ""
+
+        for i in range(NUMBER_LENGTH):
+            num = count_fingers()
+            nums_chosen.append(num)
+            number_guessed += str(num)
+
+            guess_image = np.copy(background)
+            guess_message = "You guessed: " + number_guessed
+            textsize = cv.getTextSize(guess_message, font, 1, 1)[0]
+            textX = (image.shape[1] - textsize[0]) // 2
+            textY = 350
+            cv.putText(guess_image, guess_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
+            cv.imshow("The Memory Game", guess_image)
+            cv.waitKey(1000)  # Wait for 1 second
+
+        result_message = "Correct!" if number_guessed == number_to_guess else "Incorrect!"
+        your_answer_message = "Your answer: " + number_guessed
+        correct_answer_message = "Correct answer: " + number_to_guess
+
+        textsize = cv.getTextSize(result_message, font, 2, 1)[0]
+        result_color = (0, 255, 0) if result_message == "Correct!" else (0, 0, 255)
+        textX = (image.shape[1] - textsize[0]) // 2
+        textY = 350
+        cv.putText(blank, result_message, (textX, textY), font, 2, result_color, 1, cv.LINE_AA)
+
+        if number_guessed != number_to_guess:
+            textsize = cv.getTextSize(your_answer_message, font, 1, 1)[0]
+            textX = (image.shape[1] - textsize[0]) // 2
+            textY += textsize[1] + 20
+            cv.putText(blank, your_answer_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
+
+            textsize = cv.getTextSize(correct_answer_message, font, 1, 1)[0]
+            textX = (image.shape[1] - textsize[0]) // 2
+            textY += textsize[1] + 20
+            cv.putText(blank, correct_answer_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
+
+        replay_message = "Press 'r' to replay or 'q' to quit"
+        textsize = cv.getTextSize(replay_message, font, 1, 1)[0]
+        textX = (image.shape[1] - textsize[0]) // 2
+        textY += textsize[1] + 20
+        cv.putText(blank, replay_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
+
+        cv.imshow("The Memory Game", blank)
+
+        key = cv.waitKey(0) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('r'):
+            continue
+
+    cv.destroyAllWindows()
 
 
 if __name__ == "__main__":

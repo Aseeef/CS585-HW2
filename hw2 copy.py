@@ -560,9 +560,11 @@ def main():
 
         cv.imshow("The Memory Game", background)
 
+        NUMBER_LENGTH = 6
+
         number_to_guess = ""
-        for _ in range(5):
-            number_to_guess += random.choice("1234")
+        for _ in range(NUMBER_LENGTH):
+            number_to_guess += random.choice("12345")
 
         guess_message = "Here is the number to remember: " + number_to_guess
         textsize = cv.getTextSize(guess_message, font, 1, 1)[0]
@@ -571,8 +573,8 @@ def main():
 
         cv.putText(image, guess_message, (textX, textY), font, 1, color, 1, cv.LINE_AA)
         cv.imshow("The Memory Game", image)
-        
-        for i in range(7, 0, -1):
+
+        for i in range(5, 0, -1):
             countdown_image = np.copy(image)
             countdown_message = "Disappearing in " + str(i)
             textsize = cv.getTextSize(countdown_message, font, 1, 1)[0]
@@ -587,7 +589,7 @@ def main():
         nums_chosen = []
         number_guessed = ""
 
-        for i in range(5):
+        for i in range(NUMBER_LENGTH):
             num = count_fingers()
             nums_chosen.append(num)
             number_guessed += str(num)
@@ -636,8 +638,8 @@ def main():
             break
         elif key == ord('r'):
             continue
-   
+
     cv.destroyAllWindows()
-    
+
 if __name__ == "__main__":
     main()

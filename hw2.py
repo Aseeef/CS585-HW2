@@ -122,7 +122,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     # show
     plt_show_img("Hull", img)
 
-    return fingers_counter // 2
+    return math.ceil(fingers_counter / 2)
 
 
 def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:

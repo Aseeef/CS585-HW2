@@ -48,7 +48,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     fingers_counter = 0
     current_status = None
     last_status = None
-    for theta in range(75, 285, 1):
+    for theta in range(67, 293, 1):
         x = int((r * math.cos(math.radians(theta))) + center_x)
         y = int((r * math.sin(math.radians(theta))) + center_y)
 
@@ -388,19 +388,18 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, 
     return img
 
 
-count = 0
-fingers_detected = 0
+count = fingers_detected = 0
 
 def count_fingers():
     global count, fingers_detected
     
     # Connect to webcam
-    print("Connecting to webcam...")
+    # print("Connecting to webcam...")
     webcam = cv.VideoCapture(0, cv.CAP_DSHOW)
     webcam.set(cv.CAP_PROP_FRAME_WIDTH, 640)
     webcam.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
 
-    print("Starting display..!")
+    # print("Starting display..!")
     finger_detections = []
     while True:
         status, frame = webcam.read()
@@ -448,7 +447,7 @@ def count_fingers():
         # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 7500:
+        if area < 6000:
             # Add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
             continue
@@ -461,12 +460,12 @@ def count_fingers():
             cv.putText(original, f'Calculating...', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
         # Display the final frame with finger count information
-        cv.imshow("Final", original)
+        plt_show_img("Final", original)
 
         if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
             finger_count = int(statistics.mean(finger_detections))
 
-            if count == 0:
+            if count == 0 and 1 <= finger_count <= 5:
                 fingers_detected = finger_count
                 count += 1
             else:
@@ -475,9 +474,12 @@ def count_fingers():
                 else:
                     count = 0
             
-            if count == 200:
+            # print(count)
+
+            if count == 30:
                 webcam.release()
                 cv.destroyAllWindows()
+                count = fingers_detected = 0
                 return finger_count
 
         # Remove oldest detections
@@ -485,12 +487,39 @@ def count_fingers():
         if len(finger_detections) > 20:
             finger_detections.pop(0)
 
-        
-
 
 def main():
-    fingers = count_fingers()
-    print(f"Fingers: {fingers}")
+    part1_options = [
+        "In the mystical land of Eldoria, where dragons soared high and magic flowed through the air,",
+        "Deep within the enchanted forest, where ancient trees whispered secrets and faeries danced under the moonlight,",
+        "Amidst the bustling streets of the bustling city of Evermore, where merchants sold their wares and adventurers sought their fortune,",
+        "At the edge of the known world, where the sea met the sky in an endless horizon and ships sailed towards unseen horizons,",
+        "In the hidden valley of Avalon, where the echoes of past heroes resonated in the wind and legends were born anew,",
+    ]
+
+    part2_options = [
+        "a brave knight set out on a quest to retrieve the lost artifact of power, known only as the Heart of Ages.",
+        "an unlikely hero stumbled upon a forgotten temple, guarded by ancient guardians and filled with untold treasures.",
+        "a band of adventurers encountered a fearsome dragon, terrorizing the countryside and threatening the peace of the realm.",
+        "a young sorcerer uncovered an ancient spellbook, unlocking the secrets of the arcane and unleashing unimaginable forces.",
+        "a wandering bard stumbled upon a hidden grove, where the spirits of nature whispered secrets of the past and visions of the future.",
+    ]
+
+    part3_options = [
+        "With the courage of their convictions and the strength of their hearts, they faced trials and tribulations beyond imagination.",
+        "Through perseverance and determination, they overcame every obstacle in their path, proving their worth and earning their place in legend.",
+        "With the help of newfound friends and allies, they embarked on a journey that would change the course of history and shape the destiny of nations.",
+        "As the final battle raged on, they stood firm against the forces of darkness, wielding the power of hope and the light of truth.",
+        "With the echoes of victory ringing in their ears, they returned home as heroes, celebrated by their people and revered by future generations.",
+    ]
+
+    part1_index = count_fingers()
+    print(part1_options[part1_index - 1], end=" ")
+    part2_index = count_fingers()
+    print(part2_options[part2_index - 1], end=" ")
+    part3_index = count_fingers()
+    print(part3_options[part3_index - 1])
+    
 
 if __name__ == "__main__":
     main()

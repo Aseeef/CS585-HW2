@@ -1,5 +1,6 @@
 import math
 import statistics
+import random
 from typing import Tuple, Union, Sequence
 
 import cv2 as cv
@@ -454,7 +455,7 @@ def count_fingers():
 
         fingers = hull_finger_counter(frame)
 
-        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8 and 1 <= int(statistics.mean(finger_detections)) <= 5:
             cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
         elif len(finger_detections) > 10:
             cv.putText(original, f'Calculating...', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
@@ -489,37 +490,27 @@ def count_fingers():
 
 
 def main():
-    part1_options = [
-        "In the mystical land of Eldoria, where dragons soared high and magic flowed through the air,",
-        "Deep within the enchanted forest, where ancient trees whispered secrets and faeries danced under the moonlight,",
-        "Amidst the bustling streets of the bustling city of Evermore, where merchants sold their wares and adventurers sought their fortune,",
-        "At the edge of the known world, where the sea met the sky in an endless horizon and ships sailed towards unseen horizons,",
-        "In the hidden valley of Avalon, where the echoes of past heroes resonated in the wind and legends were born anew,",
-    ]
+    number_to_guess = ""
 
-    part2_options = [
-        "a brave knight set out on a quest to retrieve the lost artifact of power, known only as the Heart of Ages.",
-        "an unlikely hero stumbled upon a forgotten temple, guarded by ancient guardians and filled with untold treasures.",
-        "a band of adventurers encountered a fearsome dragon, terrorizing the countryside and threatening the peace of the realm.",
-        "a young sorcerer uncovered an ancient spellbook, unlocking the secrets of the arcane and unleashing unimaginable forces.",
-        "a wandering bard stumbled upon a hidden grove, where the spirits of nature whispered secrets of the past and visions of the future.",
-    ]
-
-    part3_options = [
-        "With the courage of their convictions and the strength of their hearts, they faced trials and tribulations beyond imagination.",
-        "Through perseverance and determination, they overcame every obstacle in their path, proving their worth and earning their place in legend.",
-        "With the help of newfound friends and allies, they embarked on a journey that would change the course of history and shape the destiny of nations.",
-        "As the final battle raged on, they stood firm against the forces of darkness, wielding the power of hope and the light of truth.",
-        "With the echoes of victory ringing in their ears, they returned home as heroes, celebrated by their people and revered by future generations.",
-    ]
-
-    part1_index = count_fingers()
-    print(part1_options[part1_index - 1], end=" ")
-    part2_index = count_fingers()
-    print(part2_options[part2_index - 1], end=" ")
-    part3_index = count_fingers()
-    print(part3_options[part3_index - 1])
+    for _ in range(5):
+        number_to_guess += random.choice("12345")
+    print(f"Number to guess: {number_to_guess}")
     
+    nums_chosen = []
 
+    for i in range(5):
+        nums_chosen.append(count_fingers())
+   
+    num1, num2, num3, num4, num5 = nums_chosen
+    number_guessed = str(num1) + str(num2) + str(num3) + str(num4) + str(num5)
+
+
+    if number_guessed == number_to_guess:
+        print("Correct!")
+    else:
+        print("Incorrect!")
+        print(f"Your answer: {number_guessed}")
+        print(f"Correct answer: {number_to_guess}")
+    
 if __name__ == "__main__":
     main()

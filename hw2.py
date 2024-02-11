@@ -64,8 +64,9 @@ def bounding_box_from_contour(contour):
 
     return x1, x2, y1, y2
 
-def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
 
+def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
+    img = img.copy()
     # Find contours
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     if not contours:
@@ -77,14 +78,15 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
 
     img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
     # draw centroid todo: x,y flipped fix later
-    img = cv.drawMarker(img, (int(center_y), int(center_x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
+    img = cv.drawMarker(img, (int(center_y), int(center_x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS,
+                        markerSize=10)
 
     # delete the bottom 20% of the image obj
     x1, y1, w, h = cv.boundingRect(contour)
     x2 = x1 + w
     y2 = y1 + h
     cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw the bounding box
-    new_y2 = y2 + int(((y1 - y2) * (1/5)))
+    new_y2 = y2 + int(((y1 - y2) * 0.25))
     img[new_y2:y2, x1:x2] = 0
 
     # Find the convex hull
@@ -94,7 +96,8 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
 
     dist_to_edges = []
     for p in hull:
-        img = cv.drawMarker(img, (int(p[0][0]), int(p[0][1])), color=(255, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10)
+        img = cv.drawMarker(img, (int(p[0][0]), int(p[0][1])), color=(255, 255, 0), markerType=cv.MARKER_CROSS,
+                            markerSize=10)
         edge_point = p[0]
         dist = calc_dist_between_points(edge_point, (center_x, center_y))
         dist_to_edges += [(dist, edge_point)]
@@ -112,9 +115,9 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         x = int((r * math.cos(theta)) + center_x)
         y = int((r * math.sin(theta)) + center_y)
 
-        #print(f"Pixel at y={y}, x={x} is {bin_img[x, y]}")
-        #print(f"Middle: {center_y}, {center_x} is {bin_img[int(center_x), int(center_y)]}")
-        #print(f"Full img: {bin_img.shape}")
+        # print(f"Pixel at y={y}, x={x} is {bin_img[x, y]}")
+        # print(f"Middle: {center_y}, {center_x} is {bin_img[int(center_x), int(center_y)]}")
+        # print(f"Full img: {bin_img.shape}")
         current_status = 1 if bin_img[x, y] == 255 else 0
 
         if current_status == 1:
@@ -125,19 +128,19 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         if last_status is not None and last_status == 0 and current_status == 1:
             fingers_counter += 1
             img = cv.drawMarker(img, (y, x), color=(0, 255, 255), markerType=cv.MARKER_CROSS, markerSize=10)
-            #print("LS1", last_status, "CS1", current_status)
+            # print("LS1", last_status, "CS1", current_status)
         elif last_status is not None and last_status == 1 and current_status == 0:
             fingers_counter += 1
             img = cv.drawMarker(img, (y, x), color=(255, 0, 255), markerType=cv.MARKER_CROSS, markerSize=10)
-            #print("LS2", last_status, "CS2", current_status)
+            # print("LS2", last_status, "CS2", current_status)
 
         last_status = current_status
 
-    print(fingers_counter)
     # show
-    cv.imshow("Hull", img)
+    plt_show_img("Hull", img)
 
     return fingers_counter // 2
+
 
 def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
     arg_min, smallest = None, None
@@ -184,7 +187,7 @@ def get_palm(img: Union[UMat, np.ndarray], region_of_interest):
     h, w = best_size
     print(best_val, best_sf)
     cv.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    cv.imshow("Palm", img)
+    plt_show_img("Palm", img)
 
 
 def count_fingers_around_circle(img: Union[UMat, np.ndarray], center: Tuple[int, int], radius: int):
@@ -197,7 +200,7 @@ def count_fingers_around_circle(img: Union[UMat, np.ndarray], center: Tuple[int,
 
         img = cv.circle(img, (int(x), int(y)), 3, (0, 255, 0), 1)
 
-    cv.imshow("TEST", img)
+    plt_show_img("TEST", img)
     ...
 
 
@@ -215,14 +218,16 @@ def calc_angle_between_points(a, b, c) -> float:
     theta = math.degrees(math.acos(cos_theta))
     return theta
 
+
 LEN_THRESHOLD_PIXELS: int = 16
+
 
 def calc_dist_between_points(a, b):
     return math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
 
+
 def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
         Tuple[Union[UMat, np.ndarray], Union[UMat, np.ndarray]]:
-
     if len(contour) < 3:
         return img, contour
 
@@ -263,7 +268,6 @@ def angle_contour_reducer(img: Union[UMat, np.ndarray], contour: UMat) -> \
 
 
 def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UMat):
-
     if len(contour) < 3:
         return img, contour
 
@@ -321,13 +325,21 @@ def plt_show_img(name: str, img: UMat):
     # plt.plot()
     cv.namedWindow(name, cv.WINDOW_AUTOSIZE)
     cv.imshow(name, img)
-    # cv.waitKey(0)
+    cv.waitKey(1)
 
 
 def rescaleFrame(frame: Union[UMat, np.ndarray], scale) -> UMat:
     height = int(frame.shape[0] * scale)
     width = int(frame.shape[1] * scale)
     return cv.resize(frame, (width, height), interpolation=cv.INTER_AREA)
+
+
+def setResLiveVideo(webcam: VideoCapture, width: int):
+    # given the width we automatically figure out the height
+    scale = width / webcam.get(3)
+    height = int(webcam.get(4) * scale)
+    webcam.set(3, width)
+    webcam.set(4, height)
 
 
 def calc_area(img: np.ndarray) -> int:
@@ -419,7 +431,6 @@ def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
 
 
 def apply_smoothing(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    img = cv.GaussianBlur(img, (7, 7), 0)
     img = cv.medianBlur(img, 11)
     return img
 
@@ -524,6 +535,7 @@ def main():
     # Connect to web cam
     print("Connecting to webcam...")
     webcam = VideoCapture(0, cv.CAP_DSHOW)
+    setResLiveVideo(webcam, 500)
 
     # load templates for template matching
     print("Loading image templates...")
@@ -534,21 +546,24 @@ def main():
         status, frame = webcam.read()
         if not status:
             print('Failed to capture frame')
-            continue
+            return
+
+        rescaleFrame(frame, 0.6)
 
         original = frame.copy()
-
-        #plt_show_img("Original", frame)
 
         # apply blurring to remove noise
         frame = apply_smoothing(frame)
 
         # mask to find skin colored obj
         frame = mask_image(frame)
-        #plt_show_img("Masked", frame)
+        plt_show_img("Masked", frame)
 
         # convert to a binary image
         frame = convert_to_binary(frame)
+
+        # dilate before extracting the largest obj
+        frame = cv.dilate(frame, np.array([9, 9]), iterations=4)
         # make contours around objects and extract the contour
         # with the largest area (the biggest obj) while also
         # filling in the extracted shape (further removing noise)
@@ -563,6 +578,8 @@ def main():
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
+        plt_show_img("Extracted Hand", frame)
+
         # now scale the object in preperation for when we rotate it
         # (because we don't want it to get cropped)
         frame, region_of_interest = scale_obj(frame, region_of_interest)
@@ -573,25 +590,24 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 20000:
+        if area < 9000:
             # add cv text to move closer
-            cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+            cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
+                       cv.LINE_AA)
             continue
 
         fingers = hull_finger_counter(frame)
-        cv.putText(original, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
+        cv.putText(original, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
         plt_show_img("Final", original)
 
-        #print(get_munirian_fingers(frame))
+        # print(get_munirian_fingers(frame))
 
         # template match
         # fingers = get_aseefian_fingers(frame)
         # display num of fingers
         # show_finger_count(frame, fingers)
-
-        if cv.waitKey(20) & 0xFF == ord('d'):
-            break
+        continue
 
 
 if __name__ == "__main__":

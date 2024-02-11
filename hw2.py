@@ -36,11 +36,12 @@ def get_munirian_fingers(contour):
             return count
     return 0
 
+
 def calculate_angle(start, far, end):
-    a = np.sqrt((end[0] - far[0])**2 + (end[1] - far[1])**2)
-    b = np.sqrt((start[0] - far[0])**2 + (start[1] - far[1])**2)
-    c = np.sqrt((start[0] - end[0])**2 + (start[1] - end[1])**2)
-    angle = np.arccos((b**2 + c**2 - a**2) / (2*b*c))
+    a = np.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+    b = np.sqrt((start[0] - far[0]) ** 2 + (start[1] - far[1]) ** 2)
+    c = np.sqrt((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2)
+    angle = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
     return np.degrees(angle)
 
 
@@ -54,7 +55,7 @@ def bounding_box_from_contour(contour):
     return x1, x2, y1, y2
 
 
-def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
+def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> int:
     img = img.copy()
     # Find contours
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -86,7 +87,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         dist = calc_dist_between_points(edge_point, (center_x, center_y))
         dist_to_edges += [(dist, edge_point)]
 
-    r = (h // 2) - (h // 7)
+    r: int = round((h / 2) - (h / 6))
 
     bin_img = img.copy()
     bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
@@ -94,7 +95,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     fingers_counter = 0
     current_status = None
     last_status = None
-    for theta in range(67, 293, 1):
+    for theta in range(72, 288, 1):
         x = int((r * math.cos(math.radians(theta))) + center_x)
         y = int((r * math.sin(math.radians(theta))) + center_y)
 
@@ -120,7 +121,8 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         last_status = current_status
 
     # show
-    plt_show_img("Hull", img)
+    if display_visual:
+        plt_show_img("Hull", img)
 
     return math.ceil(fingers_counter / 2)
 
@@ -387,20 +389,40 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
     return area, (int(x), int(y)), theta
 
 
+def calc_roundness(img: Union[UMat, np.ndarray]):
+    # use Emin and Emax in moment of inertia to calculate roundedness
+    # E = (1/2) (a + b) - (1/2) (a - c) cos2θ - (1/2) b sin2θ
+    x, y = find_centroid(img)
+
+    # calculate the centroid
+    a = np.sum((np.where(img > 0)[0] - x) ** 2)
+    b = 2 * np.sum((np.where(img > 0)[0] - x) * (np.where(img > 0)[1] - y))
+    c = np.sum((np.where(img > 0)[1] - y) ** 2)
+
+    Emin = (a + c) / 2 - np.sqrt(((a - c) / 2) ** 2 + (b / 2) ** 2)
+    Emax = (a + c) / 2 + np.sqrt(((a - c) / 2) ** 2 + (b / 2) ** 2)
+
+    # calculate the roundedness
+    roundedness = Emin / Emax
+    return roundedness
+
+
 def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    # convert the video frame into a binary image
-    # so that all pixels that look like skin color
-    # are included in the binary object
+    # Convert the image to HSV and YCrCb color spaces
     hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
     ycrcb = cv.cvtColor(img, cv.COLOR_BGR2YCrCb)
 
+    # Calculate the mean and standard deviation of each color channel
+    mean_hsv, std_hsv = cv.meanStdDev(hsv)
+    mean_ycrcb, std_ycrcb = cv.meanStdDev(ycrcb)
+
     # Define the thresholds for HSV color space
-    lower_hsv = np.array([0, 15, 0], dtype=np.uint8)
-    upper_hsv = np.array([17, 170, 255], dtype=np.uint8)
+    lower_hsv = np.maximum(mean_hsv - 2 * std_hsv, 0)
+    upper_hsv = np.minimum(mean_hsv + 2 * std_hsv, 255)
 
     # Define the thresholds for YCrCb color space
-    lower_ycrcb = np.array([0, 135, 85], dtype=np.uint8)
-    upper_ycrcb = np.array([255, 180, 135], dtype=np.uint8)
+    lower_ycrcb = np.maximum(mean_ycrcb - 2 * std_ycrcb, 0)
+    upper_ycrcb = np.minimum(mean_ycrcb + 2 * std_ycrcb, 255)
 
     # Create masks for each color space
     mask_hsv = cv.inRange(hsv, lower_hsv, upper_hsv)
@@ -408,6 +430,9 @@ def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
 
     # Combine the masks
     mask_combined = cv.bitwise_and(mask_hsv, mask_ycrcb)
+
+    # Invert the mask to work with white background
+    mask_combined = cv.bitwise_not(mask_combined)
 
     # Apply the combined mask to the original frame
     img = cv.bitwise_and(img, img, mask=mask_combined)
@@ -537,13 +562,15 @@ def identify_finger_tips(contours):
                 dist_start_end = np.linalg.norm(np.array(end) - np.array(start))
                 dist_start_far = np.linalg.norm(np.array(far) - np.array(start))
                 dist_end_far = np.linalg.norm(np.array(far) - np.array(end))
-                angle = math.degrees(math.acos((dist_start_far**2 + dist_end_far**2 - dist_start_end**2) / (2 * dist_start_far * dist_end_far)))
+                angle = math.degrees(math.acos((dist_start_far ** 2 + dist_end_far ** 2 - dist_start_end ** 2) / (
+                            2 * dist_start_far * dist_end_far)))
                 if angle < 90:
                     finger_tips.append(far)
     return finger_tips
 
 
 previous_count = 0
+
 
 def update_finger_count(contour):
     global previous_count
@@ -566,12 +593,9 @@ def main():
     webcam = VideoCapture(0, cv.CAP_DSHOW)
     setResLiveVideo(webcam, 500)
 
-    # load templates for template matching
-    print("Loading image templates...")
-    load_binary_templates()
-
     print("Starting display..!")
     finger_detections = []
+    last_detection = None
     while True:
         status, frame = webcam.read()
         if not status:
@@ -620,16 +644,26 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 6000:
+        if area < 1500:
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)
             continue
 
-        fingers = hull_finger_counter(frame)
+        fingers = hull_finger_counter(frame, True)
+        roundness = calc_roundness(frame)
+        # 5 fingers is a bit inaccurate so to help that we use this because when 5 fingers are up
+        # the hand is kinda rounded
+        fingers = 5 if (roundness > 0.5 and (fingers >= 4)) else fingers
+        fingers = min(fingers, 5)
+        print(roundness)
 
-        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
-            cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+        detection_result = None
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:
+            detection_result = int(statistics.mean(finger_detections))
+            cv.putText(original, f'Fingers: {detection_result}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
+                       cv.LINE_AA)
+            last_detection = detection_result
         elif len(finger_detections) > 10:
             cv.putText(original, f'Calculating...', (10, 30),
                        cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
@@ -640,14 +674,6 @@ def main():
         finger_detections += [fingers]
         if len(finger_detections) > 20:
             finger_detections.pop(0)
-
-        # print(get_munirian_fingers(frame))
-
-        # template match
-        # fingers = get_aseefian_fingers(frame)
-        # display num of fingers
-        # show_finger_count(frame, fingers)
-        continue
 
 
 if __name__ == "__main__":

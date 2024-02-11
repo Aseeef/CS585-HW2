@@ -94,7 +94,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     fingers_counter = 0
     current_status = None
     last_status = None
-    for theta in range(75, 285, 1):
+    for theta in range(67, 293, 1):
         x = int((r * math.cos(math.radians(theta))) + center_x)
         y = int((r * math.sin(math.radians(theta))) + center_y)
 
@@ -620,7 +620,7 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 7500:
+        if area < 6000:
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)

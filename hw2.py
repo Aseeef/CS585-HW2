@@ -10,6 +10,8 @@
     Implemented by:
     - Muhammad Aseef Imran
     - Munir Siddiqui
+
+    Background Image Source: https://stock.adobe.com/images/white-particle-coming-from-the-background-above-squared-floor-4k/454107697?prev_url=detail
 """
 
 import math

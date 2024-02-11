@@ -1,3 +1,17 @@
+"""
+    The Memory Game
+
+    The Memory Game is a game where the player is shown a sequence of numbers for a few seconds and then asked to
+    remember the sequence. The player then has to guess the sequence by showing the number of fingers corresponding to
+    each number in the sequence. The game then checks if the player's guess is correct or not.
+    
+    The game is implemented using OpenCV and uses several techniques detect the number of fingers shown by the player.
+    
+    Implemented by:
+    - Muhammad Aseef Imran
+    - Munir Siddiqui
+"""
+
 import math
 import statistics
 import random

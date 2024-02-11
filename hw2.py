@@ -83,11 +83,6 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
 
     # delete the bottom 20% of the image obj
     x1, y1, w, h = cv.boundingRect(contour)
-    x2 = x1 + w
-    y2 = y1 + h
-    cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw the bounding box
-    new_y2 = y2 + int(((y1 - y2) * 0.25))
-    img[new_y2:y2, x1:x2] = 0
 
     # Find the convex hull
     hull = cv.convexHull(contour, returnPoints=True)
@@ -102,7 +97,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         dist = calc_dist_between_points(edge_point, (center_x, center_y))
         dist_to_edges += [(dist, edge_point)]
 
-    r = (h // 2) - (h // 9)
+    r = (h // 2) - (h // 7)
 
     bin_img = img.copy()
     bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
@@ -110,10 +105,9 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     fingers_counter = 0
     current_status = None
     last_status = None
-    for theta in range(0, int(math.pi * 100 * 2), 1):
-        theta = theta / 100
-        x = int((r * math.cos(theta)) + center_x)
-        y = int((r * math.sin(theta)) + center_y)
+    for theta in range(75, 285, 1):
+        x = int((r * math.cos(math.radians(theta))) + center_x)
+        y = int((r * math.sin(math.radians(theta))) + center_y)
 
         # print(f"Pixel at y={y}, x={x} is {bin_img[x, y]}")
         # print(f"Middle: {center_y}, {center_x} is {bin_img[int(center_x), int(center_y)]}")
@@ -340,6 +334,8 @@ def setResLiveVideo(webcam: VideoCapture, width: int):
     height = int(webcam.get(4) * scale)
     webcam.set(3, width)
     webcam.set(4, height)
+    # reduce frame rate
+    webcam.set(cv.CAP_PROP_FPS, 20)
 
 
 def calc_area(img: np.ndarray) -> int:
@@ -542,6 +538,7 @@ def main():
     load_binary_templates()
 
     print("Starting display..!")
+    finger_detections = []
     while True:
         status, frame = webcam.read()
         if not status:
@@ -590,7 +587,7 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 9000:
+        if area < 7500:
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)
@@ -598,8 +595,18 @@ def main():
 
         fingers = hull_finger_counter(frame)
 
-        cv.putText(original, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
+            cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+        elif len(finger_detections) > 10:
+            cv.putText(original, f'Calculating...', (10, 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+
         plt_show_img("Final", original)
+
+        # remove oldest detections
+        finger_detections += [fingers]
+        if len(finger_detections) > 20:
+            finger_detections.pop(0)
 
         # print(get_munirian_fingers(frame))
 

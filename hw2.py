@@ -18,41 +18,30 @@ def load_binary_templates():
             print(f"ERROR loading {i}-fingers.png.")
 
 
-def get_munirian_fingers(img: Union[UMat, np.ndarray]) -> int:
-    # Find contours
-    contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return 0
-
-    # Get the largest contour
-    contour = max(contours, key=cv.contourArea)
-
-    # Find the convex hull and the convexity defects
+def get_munirian_fingers(contour):
     hull = cv.convexHull(contour, returnPoints=False)
-    defects = cv.convexityDefects(contour, hull)
+    if len(hull) > 3:
+        defects = cv.convexityDefects(contour, hull)
+        if defects is not None:
+            count = 0
+            for i in range(defects.shape[0]):
+                s, e, f, d = defects[i, 0]
+                start = tuple(contour[s][0])
+                end = tuple(contour[e][0])
+                far = tuple(contour[f][0])
+                # Check if angle between fingers is within a certain range
+                angle = calculate_angle(start, far, end)
+                if d > 10000 and angle < 90:
+                    count += 1
+            return count
+    return 0
 
-    if defects is None:
-        return 0
-
-    # Count the defects (number of fingers)
-    count = 0
-    for i in range(defects.shape[0]):
-        s, e, f, d = defects[i, 0]
-        start = tuple(contour[s][0])
-        end = tuple(contour[e][0])
-        far = tuple(contour[f][0])
-
-        # Use triangle similarity to estimate whether the defect is between fingers
-        a = np.sqrt((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2)
-        b = np.sqrt((far[0] - start[0]) ** 2 + (far[1] - start[1]) ** 2)
-        c = np.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
-        angle = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
-
-        # If the angle is less than 100 degrees, it's likely a finger
-        if angle < np.deg2rad(100) / 2:
-            count += 1
-
-    return count
+def calculate_angle(start, far, end):
+    a = np.sqrt((end[0] - far[0])**2 + (end[1] - far[1])**2)
+    b = np.sqrt((start[0] - far[0])**2 + (start[1] - far[1])**2)
+    c = np.sqrt((start[0] - end[0])**2 + (start[1] - end[1])**2)
+    angle = np.arccos((b**2 + c**2 - a**2) / (2*b*c))
+    return np.degrees(angle)
 
 
 def bounding_box_from_contour(contour):
@@ -525,6 +514,50 @@ def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
     rgb_img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
     cv.putText(rgb_img, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
     plt_show_img("Fingers", rgb_img)
+
+
+def identify_finger_tips(contours):
+    finger_tips = []
+    for contour in contours:
+        # Find convex hull
+        hull = cv.convexHull(contour, returnPoints=False)
+
+        # Find convexity defects
+        defects = cv.convexityDefects(contour, hull)
+
+        if defects is not None:
+            for i in range(defects.shape[0]):
+                s, e, f, _ = defects[i, 0]
+                start = tuple(contour[s][0])
+                end = tuple(contour[e][0])
+                far = tuple(contour[f][0])
+
+                # Check if the far point is above the midpoint between start and end
+                # This helps in filtering out inner hand contours
+                dist_start_end = np.linalg.norm(np.array(end) - np.array(start))
+                dist_start_far = np.linalg.norm(np.array(far) - np.array(start))
+                dist_end_far = np.linalg.norm(np.array(far) - np.array(end))
+                angle = math.degrees(math.acos((dist_start_far**2 + dist_end_far**2 - dist_start_end**2) / (2 * dist_start_far * dist_end_far)))
+                if angle < 90:
+                    finger_tips.append(far)
+    return finger_tips
+
+
+previous_count = 0
+
+def update_finger_count(contour):
+    global previous_count
+
+    # Count fingers
+    finger_count = get_munirian_fingers(contour)
+
+    # Apply threshold to avoid small fluctuations
+    threshold = 2
+    if abs(finger_count - previous_count) >= threshold:
+        previous_count = finger_count
+        return finger_count
+    else:
+        return previous_count
 
 
 def main():

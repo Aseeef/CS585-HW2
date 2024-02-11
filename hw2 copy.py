@@ -9,7 +9,25 @@ from cv2 import UMat
 from cv2 import VideoCapture
 
 
-def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
+def calculate_angle(start, far, end):
+    a = np.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
+    b = np.sqrt((start[0] - far[0]) ** 2 + (start[1] - far[1]) ** 2)
+    c = np.sqrt((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2)
+    angle = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
+    return np.degrees(angle)
+
+
+def bounding_box_from_contour(contour):
+    x_axis = contour[:, 0, 0]
+    y_axis = contour[:, 0, 1]
+
+    x1, x2 = min(x_axis), max(x_axis)
+    y1, y2 = min(y_axis), max(y_axis)
+
+    return x1, x2, y1, y2
+
+
+def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> int:
     img = img.copy()
     # Find contours
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -41,7 +59,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         dist = calc_dist_between_points(edge_point, (center_x, center_y))
         dist_to_edges += [(dist, edge_point)]
 
-    r = (h // 2) - (h // 7)
+    r: int = round((h / 2) - (h / 6))
 
     bin_img = img.copy()
     bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
@@ -49,7 +67,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
     fingers_counter = 0
     current_status = None
     last_status = None
-    for theta in range(67, 293, 1):
+    for theta in range(72, 288, 1):
         x = int((r * math.cos(math.radians(theta))) + center_x)
         y = int((r * math.sin(math.radians(theta))) + center_y)
 
@@ -75,9 +93,72 @@ def hull_finger_counter(img: Union[UMat, np.ndarray]) -> int:
         last_status = current_status
 
     # show
-    # plt_show_img("Hull", img)
+    if display_visual:
+        plt_show_img("Hull", img)
 
     return math.ceil(fingers_counter / 2)
+
+
+def get_aseefian_fingers(img: Union[UMat, np.ndarray]) -> Union[None, int]:
+    arg_min, smallest = None, None
+    # TODO: figure out the threshold
+    # This threshold decides what we will even consider that it might be a potential match
+    # if no template matches the threshold, then we return None since nothing matched
+    threshold = 100
+    for i in range(0, 6):
+        res = cv.matchTemplate(img, HAND_TEMPLATES[i], cv.TM_SQDIFF)
+        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
+
+        print(f'Template {i} match score:', min_val)
+        if min_val > threshold:
+            continue
+
+        # note: since we are using squared diff, we want to minimize the score value
+        # however in many other methods, you want to maximize.
+        if smallest is None or min_val < smallest:
+            smallest = min_val
+            arg_min = i
+
+    return arg_min
+
+
+def get_palm(img: Union[UMat, np.ndarray], region_of_interest):
+    # test different sizes to find best match
+    best_sf = None
+    best_val = None
+    best_loc = None
+    best_size = None
+    for i in range(300, 100, -10):
+        scale_factor = i / 100
+        scaled_template = cv.resize(HAND_TEMPLATES[0].copy(), None, fx=scale_factor, fy=scale_factor)
+        res = cv.matchTemplate(img, scaled_template, cv.TM_SQDIFF)
+        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
+        if best_val is None or min_val < best_val:
+            best_val = min_val
+            best_loc = min_loc
+            best_size = scaled_template.shape
+            best_sf = scale_factor
+
+    # draw the best match
+    x, y = best_loc
+    h, w = best_size
+    print(best_val, best_sf)
+    cv.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    plt_show_img("Palm", img)
+
+
+def count_fingers_around_circle(img: Union[UMat, np.ndarray], center: Tuple[int, int], radius: int):
+    img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+    # pi = 3.1415926535
+    for theta in range(0, int(math.pi * 100 * 2), 1):
+        theta = theta / 100
+        x = radius * math.cos(theta) + center[0]
+        y = radius * math.sin(theta) + center[1]
+
+        img = cv.circle(img, (int(x), int(y)), 3, (0, 255, 0), 1)
+
+    plt_show_img("TEST", img)
+    ...
 
 
 def calc_angle_between_points(a, b, c) -> float:
@@ -93,6 +174,9 @@ def calc_angle_between_points(a, b, c) -> float:
     cos_theta = max(-1.0, min(1.0, cos_theta))
     theta = math.degrees(math.acos(cos_theta))
     return theta
+
+
+LEN_THRESHOLD_PIXELS: int = 16
 
 
 def calc_dist_between_points(a, b):
@@ -223,6 +307,17 @@ def calc_area(img: np.ndarray) -> int:
 
 def find_centroid(img: np.ndarray) -> Tuple[float, float]:
     area = calc_area(img)
+
+    # calculate the first moment
+    # m10 = 0
+    # m01 = 0
+    # for i in range(img.shape[0]):
+    #     for j in range(img.shape[1]):
+    #         if img[i, j] > 0:
+    #             m10 += i
+    #             m01 += j
+
+    # above code works, but numpy is faster!
     m10 = np.sum(np.where(img > 0)[0])
     m01 = np.sum(np.where(img > 0)[1])
 
@@ -266,20 +361,40 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
     return area, (int(x), int(y)), theta
 
 
+def calc_roundness(img: Union[UMat, np.ndarray]):
+    # use Emin and Emax in moment of inertia to calculate roundedness
+    # E = (1/2) (a + b) - (1/2) (a - c) cos2θ - (1/2) b sin2θ
+    x, y = find_centroid(img)
+
+    # calculate the centroid
+    a = np.sum((np.where(img > 0)[0] - x) ** 2)
+    b = 2 * np.sum((np.where(img > 0)[0] - x) * (np.where(img > 0)[1] - y))
+    c = np.sum((np.where(img > 0)[1] - y) ** 2)
+
+    Emin = (a + c) / 2 - np.sqrt(((a - c) / 2) ** 2 + (b / 2) ** 2)
+    Emax = (a + c) / 2 + np.sqrt(((a - c) / 2) ** 2 + (b / 2) ** 2)
+
+    # calculate the roundedness
+    roundedness = Emin / Emax
+    return roundedness
+
+
 def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    # convert the video frame into a binary image
-    # so that all pixels that look like skin color
-    # are included in the binary object
+    # Convert the image to HSV and YCrCb color spaces
     hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
     ycrcb = cv.cvtColor(img, cv.COLOR_BGR2YCrCb)
 
+    # Calculate the mean and standard deviation of each color channel
+    mean_hsv, std_hsv = cv.meanStdDev(hsv)
+    mean_ycrcb, std_ycrcb = cv.meanStdDev(ycrcb)
+
     # Define the thresholds for HSV color space
-    lower_hsv = np.array([0, 15, 0], dtype=np.uint8)
-    upper_hsv = np.array([17, 170, 255], dtype=np.uint8)
+    lower_hsv = np.maximum(mean_hsv - 2 * std_hsv, 0)
+    upper_hsv = np.minimum(mean_hsv + 2 * std_hsv, 255)
 
     # Define the thresholds for YCrCb color space
-    lower_ycrcb = np.array([0, 135, 85], dtype=np.uint8)
-    upper_ycrcb = np.array([255, 180, 135], dtype=np.uint8)
+    lower_ycrcb = np.maximum(mean_ycrcb - 2 * std_ycrcb, 0)
+    upper_ycrcb = np.minimum(mean_ycrcb + 2 * std_ycrcb, 255)
 
     # Create masks for each color space
     mask_hsv = cv.inRange(hsv, lower_hsv, upper_hsv)
@@ -287,6 +402,9 @@ def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
 
     # Combine the masks
     mask_combined = cv.bitwise_and(mask_hsv, mask_ycrcb)
+
+    # Invert the mask to work with white background
+    mask_combined = cv.bitwise_not(mask_combined)
 
     # Apply the combined mask to the original frame
     img = cv.bitwise_and(img, img, mask=mask_combined)
@@ -389,6 +507,40 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, 
     return img
 
 
+def show_finger_count(img: Union[UMat, np.ndarray], fingers: Union[None, int]):
+    rgb_img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
+    cv.putText(rgb_img, f'Fingers: {fingers}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
+    plt_show_img("Fingers", rgb_img)
+
+
+def identify_finger_tips(contours):
+    finger_tips = []
+    for contour in contours:
+        # Find convex hull
+        hull = cv.convexHull(contour, returnPoints=False)
+
+        # Find convexity defects
+        defects = cv.convexityDefects(contour, hull)
+
+        if defects is not None:
+            for i in range(defects.shape[0]):
+                s, e, f, _ = defects[i, 0]
+                start = tuple(contour[s][0])
+                end = tuple(contour[e][0])
+                far = tuple(contour[f][0])
+
+                # Check if the far point is above the midpoint between start and end
+                # This helps in filtering out inner hand contours
+                dist_start_end = np.linalg.norm(np.array(end) - np.array(start))
+                dist_start_far = np.linalg.norm(np.array(far) - np.array(start))
+                dist_end_far = np.linalg.norm(np.array(far) - np.array(end))
+                angle = math.degrees(math.acos((dist_start_far ** 2 + dist_end_far ** 2 - dist_start_end ** 2) / (
+                            2 * dist_start_far * dist_end_far)))
+                if angle < 90:
+                    finger_tips.append(far)
+    return finger_tips
+
+
 count = fingers_detected = 0
 
 def count_fingers():
@@ -397,8 +549,7 @@ def count_fingers():
     # Connect to webcam
     # print("Connecting to webcam...")
     webcam = cv.VideoCapture(0, cv.CAP_DSHOW)
-    webcam.set(cv.CAP_PROP_FRAME_WIDTH, 640)
-    webcam.set(cv.CAP_PROP_FRAME_HEIGHT, 480)
+    setResLiveVideo(webcam, 500)
 
     # print("Starting display..!")
     finger_detections = []
@@ -448,14 +599,17 @@ def count_fingers():
         # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 6000:
+        if area < 1500:
             # Add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
             continue
 
-        fingers = hull_finger_counter(frame)
+        fingers = hull_finger_counter(frame, False)
+        roundness = calc_roundness(frame)
+        fingers = 5 if (roundness > 0.5 and (fingers >= 4)) else fingers
+        fingers = min(fingers, 5)
 
-        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8 and 1 <= int(statistics.mean(finger_detections)) <= 5:
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:
             cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
         elif len(finger_detections) > 10:
             cv.putText(original, f'Calculating...', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)

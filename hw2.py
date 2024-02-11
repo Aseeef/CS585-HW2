@@ -87,7 +87,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> i
         dist = calc_dist_between_points(edge_point, (center_x, center_y))
         dist_to_edges += [(dist, edge_point)]
 
-    r: int = round((h / 2) - (h / 6.5))
+    r: int = round((h / 2) - (h / 6))
 
     bin_img = img.copy()
     bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
@@ -408,19 +408,21 @@ def calc_roundness(img: Union[UMat, np.ndarray]):
 
 
 def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    # convert the video frame into a binary image
-    # so that all pixels that look like skin color
-    # are included in the binary object
+    # Convert the image to HSV and YCrCb color spaces
     hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
     ycrcb = cv.cvtColor(img, cv.COLOR_BGR2YCrCb)
 
+    # Calculate the mean and standard deviation of each color channel
+    mean_hsv, std_hsv = cv.meanStdDev(hsv)
+    mean_ycrcb, std_ycrcb = cv.meanStdDev(ycrcb)
+
     # Define the thresholds for HSV color space
-    lower_hsv = np.array([0, 15, 0], dtype=np.uint8)
-    upper_hsv = np.array([17, 170, 255], dtype=np.uint8)
+    lower_hsv = np.maximum(mean_hsv - 2 * std_hsv, 0)
+    upper_hsv = np.minimum(mean_hsv + 2 * std_hsv, 255)
 
     # Define the thresholds for YCrCb color space
-    lower_ycrcb = np.array([0, 135, 85], dtype=np.uint8)
-    upper_ycrcb = np.array([255, 180, 135], dtype=np.uint8)
+    lower_ycrcb = np.maximum(mean_ycrcb - 2 * std_ycrcb, 0)
+    upper_ycrcb = np.minimum(mean_ycrcb + 2 * std_ycrcb, 255)
 
     # Create masks for each color space
     mask_hsv = cv.inRange(hsv, lower_hsv, upper_hsv)
@@ -428,6 +430,9 @@ def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
 
     # Combine the masks
     mask_combined = cv.bitwise_and(mask_hsv, mask_ycrcb)
+
+    # Invert the mask to work with white background
+    mask_combined = cv.bitwise_not(mask_combined)
 
     # Apply the combined mask to the original frame
     img = cv.bitwise_and(img, img, mask=mask_combined)
@@ -639,7 +644,7 @@ def main():
         # rotate the image based of the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
-        if area < 3000:
+        if area < 1500:
             # add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)
@@ -649,7 +654,9 @@ def main():
         roundness = calc_roundness(frame)
         # 5 fingers is a bit inaccurate so to help that we use this because when 5 fingers are up
         # the hand is kinda rounded
-        fingers = 5 if (roundness > 0.52 and (fingers == 4 or fingers == 5)) else fingers
+        fingers = 5 if (roundness > 0.5 and (fingers >= 4)) else fingers
+        fingers = min(fingers, 5)
+        print(roundness)
 
         detection_result = None
         if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:

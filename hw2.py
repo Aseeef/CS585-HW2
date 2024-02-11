@@ -9,61 +9,37 @@ from cv2 import UMat
 from cv2 import VideoCapture
 
 
-def calculate_angle(start, far, end):
-    a = np.sqrt((end[0] - far[0]) ** 2 + (end[1] - far[1]) ** 2)
-    b = np.sqrt((start[0] - far[0]) ** 2 + (start[1] - far[1]) ** 2)
-    c = np.sqrt((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2)
-    angle = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
-    return np.degrees(angle)
-
-
-def bounding_box_from_contour(contour):
-    x_axis = contour[:, 0, 0]
-    y_axis = contour[:, 0, 1]
-
-    x1, x2 = min(x_axis), max(x_axis)
-    y1, y2 = min(y_axis), max(y_axis)
-
-    return x1, x2, y1, y2
-
-
 def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> int:
-    img = img.copy()
+
+    bin_img = img
+
     # Find contours
     contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    # If no contours found return
     if not contours:
         return 0
+
     # Get the largest contour
     contour = max(contours, key=cv.contourArea)
 
+    # Find the centroid
     center_x, center_y = find_centroid(img)
 
+    # For the visuals, convert the image to rgb (rn its binary)
     img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    # draw centroid todo: x,y flipped fix later
+    # draw centroid
     img = cv.drawMarker(img, (int(center_y), int(center_x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS,
                         markerSize=10)
 
-    # delete the bottom 20% of the image obj
+    # find the bounding box
     x1, y1, w, h = cv.boundingRect(contour)
 
-    # Find the convex hull
-    hull = cv.convexHull(contour, returnPoints=True)
-    # Draw the hull
-    cv.drawContours(img, [hull], -1, (0, 255, 0), 3)
-
-    dist_to_edges = []
-    for p in hull:
-        img = cv.drawMarker(img, (int(p[0][0]), int(p[0][1])), color=(255, 255, 0), markerType=cv.MARKER_CROSS,
-                            markerSize=10)
-        edge_point = p[0]
-        dist = calc_dist_between_points(edge_point, (center_x, center_y))
-        dist_to_edges += [(dist, edge_point)]
-
+    # use the bounding box and knowledge of hand proportions to guess how big the circle radius should be
+    # in our case, it's the distance to the top of the bounding box minus 1/6 of box height. We found experimentally
+    # this gives a pretty good circle radius
     r: int = round((h / 2) - (h / 6))
 
-    bin_img = img.copy()
-    bin_img = cv.cvtColor(bin_img, cv.COLOR_RGB2GRAY)
-
+    # checks for intersection with the fingers by drawing a circle with radius r around the hand
     fingers_counter = 0
     current_status = None
     last_status = None
@@ -224,14 +200,14 @@ def rescaleFrame(frame: Union[UMat, np.ndarray], scale) -> UMat:
     return cv.resize(frame, (width, height), interpolation=cv.INTER_AREA)
 
 
-def setResLiveVideo(webcam: VideoCapture, width: int):
+def setResLiveVideo(webcam: VideoCapture, width: int, framerate: int):
     # given the width we automatically figure out the height
     scale = width / webcam.get(3)
     height = int(webcam.get(4) * scale)
     webcam.set(3, width)
     webcam.set(4, height)
     # reduce frame rate
-    webcam.set(cv.CAP_PROP_FPS, 20)
+    webcam.set(cv.CAP_PROP_FPS, framerate)
 
 
 def calc_area(img: np.ndarray) -> int:
@@ -438,7 +414,8 @@ def count_fingers():
     # Connect to webcam
     # print("Connecting to webcam...")
     webcam = cv.VideoCapture(0, cv.CAP_DSHOW)
-    setResLiveVideo(webcam, 500)
+    # lower resolution and frame rate for performance
+    setResLiveVideo(webcam, 500, 20)
 
     # print("Starting display..!")
     finger_detections = []
@@ -447,8 +424,6 @@ def count_fingers():
         if not status:
             print('Failed to capture frame')
             return None
-
-        rescaleFrame(frame, 0.6)
 
         original = frame.copy()
 
@@ -462,43 +437,70 @@ def count_fingers():
         frame = convert_to_binary(frame)
 
         # Dilate before extracting the largest object
+        # This further removes noise in the skin mask
         frame = cv.dilate(frame, np.array([9, 9]), iterations=4)
 
         # Make contours around objects and extract the contour with the largest area
+        # This object is hopefully our hand. This technique makes our recognition resistant
+        # to a bit of extra "stuff" in the background.
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
-        # If no object is detected, continue
+        # If no object is detected, continue to the next frame because most likely
+        # there is nothing here.
         if frame is None:
             continue
 
+        # Now we need to do a 2nd round of object refining and preprocessing...
+
+        # First we simplify the contours a bit by merging contour lines that are almost
+        # parallel anyway. This helps with performance for further processing and is a
+        # precursor to our next method call...
         frame, contour = angle_contour_reducer(frame, contour)
+        # This part checks for any steep changes in angle that seem unnatural.
+        # Such steep changes in angle are most likely defects from masking so this method
+        # removes any steep changes in angle (which are often just intrusions or extrusions
+        # on the hand object
         frame, contour = defects_remover_via_angle_checking(frame, contour)
+        # The additional dilation process further reduces defects from masking
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
+        # now we extract the final hand object
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
-        # Now scale the object in preparation for when we rotate it
+        # Now scale the object in preparation for when we rotate it (so it doesn't get cropped off after rotation)
         frame, region_of_interest = scale_obj(frame, region_of_interest)
 
-        # Find the axis of least inertia
+        # Find the axis of least inertia using techniques learned in class
         area, centroid, theta = find_axis_of_least_inertia(frame, False)
 
-        # Translate the centroid of the object to the center of the image
+        # Translate the centroid of the object to the center of the image (to reduce the chances of any
+        # cropping happening due to the rotation and for easier analysis later
         frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
 
         # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
+        # if the image area is less than 1500, then we may not be able to analyse the hand properly (or maybe
+        # the hand isn't even there yet) so we just tell the user to move closer
         if area < 1500:
             # Add cv text to move closer
             cv.putText(original, f'Please move closer', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
                        cv.LINE_AA)
             continue
 
+        # The magic sauce! Basically draws a circle around the palm and based on how many times the circle intersects
+        # a finger, figures out how many fingers there are
         fingers = hull_finger_counter(frame, False)
+        # the thumb isn't detecting super well with the above technique so we also calculate the roundness of the
+        # whole hand. The thumb is only active when all 5 fingers are the way we defined our gestures and at that
+        # point that hand is actually pretty round. So we use the roundness of the hand also to know if all 5 fingers
+        # are up
         roundness = calc_roundness(frame)
         fingers = 5 if (roundness > 0.5 and (fingers >= 4)) else fingers
+        # you cant have more than 5 fingers (probably)
         fingers = min(fingers, 5)
 
+        # we use the mean and std of the finger counter to fight of random noise as well
+        # we simply don't guess anything unless we are sure by using the std
         if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:
             cv.putText(original, f'Fingers: {int(statistics.mean(finger_detections))}', (10, 30),
                        cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)

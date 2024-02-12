@@ -1,3 +1,19 @@
+"""
+    The Memory Game
+
+    The Memory Game is a game where the player is shown a sequence of numbers for a few seconds and then asked to
+    remember the sequence. The player then has to guess the sequence by showing the number of fingers corresponding to
+    each number in the sequence. The game then checks if the player's guess is correct or not.
+    
+    The game is implemented using OpenCV and uses several techniques to detect the number of fingers shown by the player.
+    
+    Implemented by:
+    - Muhammad Aseef Imran
+    - Munir Siddiqui
+
+    Background Image Source: https://stock.adobe.com/images/white-particle-coming-from-the-background-above-squared-floor-4k/454107697?prev_url=detail
+"""
+
 import math
 import statistics
 import random
@@ -607,11 +623,11 @@ def main():
 
         cv.imshow("The Memory Game", background)
 
-        NUMBER_LENGTH = 6
+        NUMBER_LENGTH = 5
 
         number_to_guess = ""
         for _ in range(NUMBER_LENGTH):
-            number_to_guess += random.choice("12345")
+            number_to_guess += random.choice("1234")
 
         guess_message = "Here is the number to remember: " + number_to_guess
         textsize = cv.getTextSize(guess_message, font, 1, 1)[0]

@@ -25,7 +25,7 @@ from cv2 import UMat
 from cv2 import VideoCapture
 
 
-def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> int:
+def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool, save_frame=False) -> int:
 
     bin_img = img
 
@@ -86,7 +86,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> i
 
     # show
     if display_visual:
-        plt_show_img("Primary Analysis Image", img)
+        plt_show_img("Primary Analysis Image", img, save_frame)
 
     return math.ceil(fingers_counter / 2)
 
@@ -204,10 +204,13 @@ def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UM
     return img, new_contours
 
 
-def plt_show_img(name: str, img: UMat):
+def plt_show_img(name: str, img: UMat | np.ndarray, save_frame=False):
+    if img is None or img.shape[0] == 0 or img.shape[1] == 0:
+        return
     cv.namedWindow(name, cv.WINDOW_AUTOSIZE)
     cv.imshow(name, img)
-    if (cv.waitKey(2) & 0xFF) == ord('c'):
+    cv.waitKey(1)
+    if save_frame:
         cv.imwrite(f"{name}.png", img)
         print(f"Written image {name}.png!")
 
@@ -244,7 +247,7 @@ def find_centroid(img: np.ndarray) -> Tuple[float, float]:
     return x, y
 
 
-def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool) -> Tuple[
+def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: bool, save_frame=False) -> Tuple[
     int, Tuple[int, int], float]:
     area = calc_area(img)
     x, y = find_centroid(img)
@@ -272,7 +275,7 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
         img = cv.drawMarker(img, (int(y), int(x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10,
                             thickness=2)
         cv.putText(img, f'{theta}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
-        plt_show_img("Angle of Least Inertia Image", img)
+        plt_show_img("Angle of Least Inertia Image", img, save_frame)
 
     return area, (int(x), int(y)), theta
 
@@ -296,34 +299,29 @@ def calc_roundness(img: Union[UMat, np.ndarray]):
 
 
 def mask_image(img: Union[UMat, np.ndarray]) -> Union[UMat, np.ndarray]:
-    # Convert the image to HSV and YCrCb color spaces
+    # Convert the image to HSV color space
     hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+
+    # Define the lower and upper thresholds for skin color in HSV space
+    lower_skin = np.array([0, 48, 80], dtype=np.uint8)
+    upper_skin = np.array([20, 255, 255], dtype=np.uint8)
+
+    # Create a mask for skin color
+    mask1 = cv.inRange(hsv, lower_skin, upper_skin)
+
+    # Convert image to CRCB
     ycrcb = cv.cvtColor(img, cv.COLOR_BGR2YCrCb)
 
-    # Calculate the mean and standard deviation of each color channel
-    mean_hsv, std_hsv = cv.meanStdDev(hsv)
-    mean_ycrcb, std_ycrcb = cv.meanStdDev(ycrcb)
+    lower_crcb = np.array((0, 120, 70))
+    upper_crcb = np.array((255, 180, 127))
 
-    # Define the thresholds for HSV color space
-    lower_hsv = np.maximum(mean_hsv - 2 * std_hsv, 0)
-    upper_hsv = np.minimum(mean_hsv + 2 * std_hsv, 255)
-
-    # Define the thresholds for YCrCb color space
-    lower_ycrcb = np.maximum(mean_ycrcb - 2 * std_ycrcb, 0)
-    upper_ycrcb = np.minimum(mean_ycrcb + 2 * std_ycrcb, 255)
-
-    # Create masks for each color space
-    mask_hsv = cv.inRange(hsv, lower_hsv, upper_hsv)
-    mask_ycrcb = cv.inRange(ycrcb, lower_ycrcb, upper_ycrcb)
+    mask2 = cv.inRange(ycrcb, lower_crcb, upper_crcb)
 
     # Combine the masks
-    mask_combined = cv.bitwise_and(mask_hsv, mask_ycrcb)
+    mask = cv.bitwise_and(mask1, mask2)
 
-    # Invert the mask to work with white background
-    mask_combined = cv.bitwise_not(mask_combined)
-
-    # Apply the combined mask to the original frame
-    img = cv.bitwise_and(img, img, mask=mask_combined)
+    # Apply the mask to the original image
+    img = cv.bitwise_and(img, img, mask=mask)
 
     return img
 
@@ -424,6 +422,7 @@ def rotate_at_center(img: Union[UMat, np.ndarray], theta: float) -> Union[UMat, 
 
 
 count = fingers_detected = 0
+debug = False
 
 
 def count_fingers():
@@ -435,8 +434,6 @@ def count_fingers():
     # lower resolution and frame rate for performance
     setResLiveVideo(webcam, 500, 20)
 
-    debug = False
-
     # print("Starting display..!")
     finger_detections = []
     while True:
@@ -447,30 +444,35 @@ def count_fingers():
 
         original = frame.copy()
 
+        save_frame = False
+        if debug:
+            cv.imshow("Original", original)
+            save_frame = (cv.waitKey(1) & 0xFF) == ord('c')
+
         # Apply blurring to remove noise
         frame = apply_smoothing(frame)
 
         if debug:
-            plt_show_img("Smoothed Image", frame)
+            plt_show_img("Smoothed Image", frame, save_frame)
 
         # Mask to find skin-colored objects
         frame = mask_image(frame)
 
         if debug:
-            plt_show_img("Masked Image", frame)
+            plt_show_img("Masked Image", frame, save_frame)
 
         # Convert to a binary image
         frame = convert_to_binary(frame)
 
         if debug:
-            plt_show_img("Binary Image", frame)
+            plt_show_img("Binary Image", frame, save_frame)
 
         # Dilate before extracting the largest object
         # This further removes noise in the skin mask
         frame = cv.dilate(frame, np.array([9, 9]), iterations=4)
 
         if debug:
-            plt_show_img("Dilated Image", frame)
+            plt_show_img("Dilated Image", frame, save_frame)
 
         # Make contours around objects and extract the contour with the largest area
         # This object is hopefully our hand. This technique makes our recognition resistant
@@ -478,7 +480,7 @@ def count_fingers():
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
         if debug:
-            plt_show_img("LO Extracted Image", frame)
+            plt_show_img("LO Extracted Image", frame, save_frame)
 
         # If no object is detected, continue to the next frame because most likely
         # there is nothing here.
@@ -493,7 +495,7 @@ def count_fingers():
         frame, contour = angle_contour_reducer(frame, contour)
 
         if debug:
-            plt_show_img("Contour Reduced Image", frame)
+            plt_show_img("Contour Reduced Image", frame, save_frame)
 
         # This part checks for any steep changes in angle that seem unnatural.
         # Such steep changes in angle are most likely defects from masking so this method
@@ -502,19 +504,19 @@ def count_fingers():
         frame, contour = defects_remover_via_angle_checking(frame, contour)
 
         if debug:
-            plt_show_img("Defect Reduced Image", frame)
+            plt_show_img("Defect Reduced Image", frame, save_frame)
 
         # The additional dilation process further reduces defects from masking
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
 
         if debug:
-            plt_show_img("Dilated Image 2", frame)
+            plt_show_img("Dilated Image 2", frame, save_frame)
 
         # now we extract the final hand object
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
 
         if debug:
-            plt_show_img("LO2 Extracted Image", frame)
+            plt_show_img("LO2 Extracted Image", frame, save_frame)
 
         # Now scale the object in preparation for when we rotate it (so it doesn't get cropped off after rotation)
         frame, region_of_interest = scale_obj(frame, region_of_interest)
@@ -523,20 +525,20 @@ def count_fingers():
             plt_show_img("Scaled Image", frame)
 
         # Find the axis of least inertia using techniques learned in class
-        area, centroid, theta = find_axis_of_least_inertia(frame, debug)
+        area, centroid, theta = find_axis_of_least_inertia(frame, debug, save_frame)
 
         # Translate the centroid of the object to the center of the image (to reduce the chances of any
         # cropping happening due to the rotation and for easier analysis later
         frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
 
         if debug:
-            plt_show_img("Centered Image", frame)
+            plt_show_img("Centered Image", frame, save_frame)
 
         # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
 
         if debug:
-            plt_show_img("Rotated Image", frame)
+            plt_show_img("Rotated Image", frame, save_frame)
 
         # if the image area is less than 1500, then we may not be able to analyse the hand properly (or maybe
         # the hand isn't even there yet) so we just tell the user to move closer
@@ -548,7 +550,7 @@ def count_fingers():
 
         # The magic sauce! Basically draws a circle around the palm and based on how many times the circle intersects
         # a finger, figures out how many fingers there are
-        fingers = hull_finger_counter(frame, debug)
+        fingers = hull_finger_counter(frame, debug, save_frame)
         # the thumb isn't detecting super well with the above technique so we also calculate the roundness of the
         # whole hand. The thumb is only active when all 5 fingers are the way we defined our gestures and at that
         # point that hand is actually pretty round. So we use the roundness of the hand also to know if all 5 fingers
@@ -567,7 +569,7 @@ def count_fingers():
             cv.putText(original, f'Calculating...', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
 
         # Display the final frame with finger count information
-        plt_show_img("Enter your guess", original)
+        plt_show_img("Enter your guess", original, save_frame)
 
         if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
             finger_count = int(statistics.mean(finger_detections))
@@ -597,6 +599,12 @@ def count_fingers():
 
 def main():
     while True:
+
+        # if debugging, skip straight to finger detection
+        if debug:
+            count_fingers()
+            continue
+
         image = cv.imread("background.jpg")
         image = cv.resize(image, (1000, 2 * image.shape[0]))
         blank = image.copy()

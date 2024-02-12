@@ -70,7 +70,7 @@ def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool) -> i
 
     # show
     if display_visual:
-        plt_show_img("Hull", img)
+        plt_show_img("Primary Analysis Image", img)
 
     return math.ceil(fingers_counter / 2)
 
@@ -191,7 +191,9 @@ def defects_remover_via_angle_checking(img: Union[UMat, np.ndarray], contour: UM
 def plt_show_img(name: str, img: UMat):
     cv.namedWindow(name, cv.WINDOW_AUTOSIZE)
     cv.imshow(name, img)
-    cv.waitKey(1)
+    if (cv.waitKey(2) & 0xFF) == ord('c'):
+        cv.imwrite(f"{name}.png", img)
+        print(f"Written image {name}.png!")
 
 
 def rescaleFrame(frame: Union[UMat, np.ndarray], scale) -> UMat:
@@ -254,7 +256,7 @@ def find_axis_of_least_inertia(img: Union[UMat, np.ndarray], display_visual: boo
         img = cv.drawMarker(img, (int(y), int(x)), color=(0, 255, 0), markerType=cv.MARKER_CROSS, markerSize=10,
                             thickness=2)
         cv.putText(img, f'{theta}', (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv.LINE_AA)
-        plt_show_img("Angle of Least Inertia", img)
+        plt_show_img("Angle of Least Inertia Image", img)
 
     return area, (int(x), int(y)), theta
 
@@ -417,6 +419,8 @@ def count_fingers():
     # lower resolution and frame rate for performance
     setResLiveVideo(webcam, 500, 20)
 
+    debug = False
+
     # print("Starting display..!")
     finger_detections = []
     while True:
@@ -430,20 +434,35 @@ def count_fingers():
         # Apply blurring to remove noise
         frame = apply_smoothing(frame)
 
+        if debug:
+            plt_show_img("Smoothed Image", frame)
+
         # Mask to find skin-colored objects
         frame = mask_image(frame)
 
+        if debug:
+            plt_show_img("Masked Image", frame)
+
         # Convert to a binary image
         frame = convert_to_binary(frame)
+
+        if debug:
+            plt_show_img("Binary Image", frame)
 
         # Dilate before extracting the largest object
         # This further removes noise in the skin mask
         frame = cv.dilate(frame, np.array([9, 9]), iterations=4)
 
+        if debug:
+            plt_show_img("Dilated Image", frame)
+
         # Make contours around objects and extract the contour with the largest area
         # This object is hopefully our hand. This technique makes our recognition resistant
         # to a bit of extra "stuff" in the background.
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
+
+        if debug:
+            plt_show_img("LO Extracted Image", frame)
 
         # If no object is detected, continue to the next frame because most likely
         # there is nothing here.
@@ -456,28 +475,52 @@ def count_fingers():
         # parallel anyway. This helps with performance for further processing and is a
         # precursor to our next method call...
         frame, contour = angle_contour_reducer(frame, contour)
+
+        if debug:
+            plt_show_img("Contour Reduced Image", frame)
+
         # This part checks for any steep changes in angle that seem unnatural.
         # Such steep changes in angle are most likely defects from masking so this method
         # removes any steep changes in angle (which are often just intrusions or extrusions
         # on the hand object
         frame, contour = defects_remover_via_angle_checking(frame, contour)
+
+        if debug:
+            plt_show_img("Defect Reduced Image", frame)
+
         # The additional dilation process further reduces defects from masking
         frame = cv.dilate(frame, np.array([11, 11]), iterations=7)
+
+        if debug:
+            plt_show_img("Dilated Image 2", frame)
+
         # now we extract the final hand object
         frame, contour, region_of_interest = binary_img_extract_largest_obj(frame)
+
+        if debug:
+            plt_show_img("LO2 Extracted Image", frame)
 
         # Now scale the object in preparation for when we rotate it (so it doesn't get cropped off after rotation)
         frame, region_of_interest = scale_obj(frame, region_of_interest)
 
+        if debug:
+            plt_show_img("Scaled Image", frame)
+
         # Find the axis of least inertia using techniques learned in class
-        area, centroid, theta = find_axis_of_least_inertia(frame, False)
+        area, centroid, theta = find_axis_of_least_inertia(frame, debug)
 
         # Translate the centroid of the object to the center of the image (to reduce the chances of any
         # cropping happening due to the rotation and for easier analysis later
         frame, region_of_interest = move_obj_to_center(frame, centroid, region_of_interest)
 
+        if debug:
+            plt_show_img("Centered Image", frame)
+
         # Rotate the image based on the axis of least inertia
         frame = rotate_at_center(frame, theta)
+
+        if debug:
+            plt_show_img("Rotated Image", frame)
 
         # if the image area is less than 1500, then we may not be able to analyse the hand properly (or maybe
         # the hand isn't even there yet) so we just tell the user to move closer
@@ -489,7 +532,7 @@ def count_fingers():
 
         # The magic sauce! Basically draws a circle around the palm and based on how many times the circle intersects
         # a finger, figures out how many fingers there are
-        fingers = hull_finger_counter(frame, False)
+        fingers = hull_finger_counter(frame, debug)
         # the thumb isn't detecting super well with the above technique so we also calculate the roundness of the
         # whole hand. The thumb is only active when all 5 fingers are the way we defined our gestures and at that
         # point that hand is actually pretty round. So we use the roundness of the hand also to know if all 5 fingers
@@ -524,7 +567,7 @@ def count_fingers():
 
             # print(count)
 
-            if count == 30:
+            if count == 30 and not debug:
                 webcam.release()
                 cv.destroyWindow("Enter your guess")
                 count = fingers_detected = 0

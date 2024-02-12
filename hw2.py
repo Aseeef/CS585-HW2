@@ -580,11 +580,11 @@ def main():
 
         cv.imshow("The Memory Game", background)
 
-        NUMBER_LENGTH = 6
+        NUMBER_LENGTH = 5
 
         number_to_guess = ""
         for _ in range(NUMBER_LENGTH):
-            number_to_guess += random.choice("12345")
+            number_to_guess += random.choice("1234")
 
         guess_message = "Here is the number to remember: " + number_to_guess
         textsize = cv.getTextSize(guess_message, font, 1, 1)[0]

@@ -45,13 +45,7 @@ def main():
     plt.show()
 
     accuracy = accuracy_score(actual, detected)
-    precision = precision_score(actual, detected, average='weighted')
-    recall = recall_score(actual, detected, average='weighted')
-    f1 = f1_score(actual, detected, average='weighted')
     print("Accuracy:", accuracy)
-    print("Precision:", precision)
-    print("Recall:", recall)
-    print("F1-score:", f1)
 
 if __name__ == "__main__":
     main()

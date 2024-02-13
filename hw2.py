@@ -25,7 +25,7 @@ from cv2 import UMat
 from cv2 import VideoCapture
 
 
-def hull_finger_counter(img: Union[UMat, np.ndarray], display_visual: bool, save_frame=False) -> int:
+def get_fingers_in_frame(img: Union[UMat, np.ndarray], display_visual: bool, save_frame=False) -> int:
 
     bin_img = img
 
@@ -550,7 +550,7 @@ def count_fingers():
 
         # The magic sauce! Basically draws a circle around the palm and based on how many times the circle intersects
         # a finger, figures out how many fingers there are
-        fingers = hull_finger_counter(frame, debug, save_frame)
+        fingers = get_fingers_in_frame(frame, debug, save_frame)
         # the thumb isn't detecting super well with the above technique so we also calculate the roundness of the
         # whole hand. The thumb is only active when all 5 fingers are the way we defined our gestures and at that
         # point that hand is actually pretty round. So we use the roundness of the hand also to know if all 5 fingers

@@ -50,12 +50,12 @@ def get_fingers_in_frame(img: Union[UMat, np.ndarray], display_visual: bool, sav
     # find the bounding box
     x1, y1, w, h = cv.boundingRect(contour)
 
-    # use the bounding box and knowledge of hand proportions to guess how big the circle radius should be
+    # use the bounding box and knowledge of hand proportions to guess how big the arc radius should be
     # in our case, it's the distance to the top of the bounding box minus 1/6 of box height. We found experimentally
-    # this gives a pretty good circle radius
+    # this gives a pretty good arc radius
     r: int = round((h / 2) - (h / 6))
 
-    # checks for intersection with the fingers by drawing a circle with radius r around the hand
+    # checks for intersection with the fingers by drawing an arc with radius r around the hand
     fingers_counter = 0
     current_status = None
     last_status = None
@@ -548,7 +548,7 @@ def count_fingers():
                        cv.LINE_AA)
             continue
 
-        # The magic sauce! Basically draws a circle around the palm and based on how many times the circle intersects
+        # The magic sauce! Basically draws an arc around the palm and based on how many times the arc intersects
         # a finger, figures out how many fingers there are
         fingers = get_fingers_in_frame(frame, debug, save_frame)
         # the thumb isn't detecting super well with the above technique so we also calculate the roundness of the

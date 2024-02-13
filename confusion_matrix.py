@@ -17,6 +17,7 @@ def main():
 
     actual = [1] * 50 + [2] * 50 + [3] * 50 + [4] * 50 + [5] * 50
     detected = results[1] + results[2] + results[3] + results[4] + results[5]
+
     print(detected)
 
     cm = confusion_matrix(actual, detected)
@@ -33,7 +34,7 @@ def main():
     labels = np.array(labels).reshape(5, 5)
 
     # Plot the heatmap
-    sns.heatmap(cm, annot=labels, fmt='', cmap='Blues')
+    sns.heatmap(cm, annot=labels, fmt='', cmap='OrRd')
 
     # Set the x and y axis labels to range from 1 to 5
     plt.xticks(np.arange(5) + 0.5, labels=np.arange(1, 6))

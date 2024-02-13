@@ -571,7 +571,7 @@ def count_fingers():
         # Display the final frame with finger count information
         plt_show_img("Enter your guess", original, save_frame)
 
-        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.8:
+        if len(finger_detections) > 10 and statistics.stdev(finger_detections) < 0.65:
             finger_count = int(statistics.mean(finger_detections))
 
             if count == 0 and 1 <= finger_count <= 5:

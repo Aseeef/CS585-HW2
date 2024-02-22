@@ -635,6 +635,8 @@ def main():
 
         number_to_guess = ""
         for _ in range(NUMBER_LENGTH):
+            # Temporarily removed 5 from the choices to make it easier to test
+            # Because the finger detection for five fingers is not very accurate
             number_to_guess += random.choice("1234")
 
         guess_message = "Here is the number to remember: " + number_to_guess
